@@ -20,6 +20,8 @@ def _plan(
     previous_abs_revision: int = 200,
     orbit_signature: str = "orbit-same",
     previous_orbit_signature: str = "orbit-same",
+    orbit_revision: int = 200_000,
+    previous_orbit_revision: int = 200_000,
     mode: str = "FINE",
     previous_mode: str = "FINE",
     last_source: str = "",
@@ -38,6 +40,8 @@ def _plan(
         previous_abs_signature=previous_abs_signature,
         abs_revision=abs_revision,
         previous_abs_revision=previous_abs_revision,
+        orbit_revision=orbit_revision,
+        previous_orbit_revision=previous_orbit_revision,
     )
 
 
@@ -94,19 +98,109 @@ def test_stale_abs_observation_is_not_activity():
     assert decision.record_observations is False
 
 
-def test_both_sides_changed_is_explicit_conflict():
+def test_both_changed_abs_clearly_newer_wins():
     decision = _plan(
         abs_audio_s=200.0,
         orbit_audio_s=100.0,
         abs_signature="abs-new",
         previous_abs_signature="abs-old",
-        abs_revision=201,
+        abs_revision=300_000,
         orbit_signature="orbit-new",
         previous_orbit_signature="orbit-old",
+        orbit_revision=200_000,
+        previous_orbit_revision=190_000,
+    )
+    assert decision.direction == "abs_to_orbit"
+    assert "newer ABS revision" in decision.reason
+
+
+def test_both_changed_bookorbit_clearly_newer_wins():
+    decision = _plan(
+        abs_audio_s=200.0,
+        orbit_audio_s=100.0,
+        abs_signature="abs-new",
+        previous_abs_signature="abs-old",
+        abs_revision=200_000,
+        orbit_signature="orbit-new",
+        previous_orbit_signature="orbit-old",
+        orbit_revision=300_000,
+    )
+    assert decision.direction == "orbit_to_abs"
+    assert "newer BookOrbit revision" in decision.reason
+
+
+def test_near_simultaneous_conflict_skips_and_rebases():
+    decision = _plan(
+        abs_audio_s=200.0,
+        orbit_audio_s=100.0,
+        abs_signature="abs-new",
+        previous_abs_signature="abs-old",
+        abs_revision=210_000,
+        orbit_signature="orbit-new",
+        previous_orbit_signature="orbit-old",
+        orbit_revision=200_000,
+        previous_orbit_revision=190_000,
     )
     assert decision.direction == "skip"
-    assert "conflicting activity" in decision.reason
-    assert decision.record_observations is False
+    assert "ambiguous" in decision.reason
+    assert decision.record_observations is True
+
+
+def test_abs_only_movement_after_ambiguous_rebase_wins():
+    decision = _plan(
+        abs_audio_s=200.0,
+        orbit_audio_s=100.0,
+        abs_signature="abs-after-rebase",
+        previous_abs_signature="abs-rebased",
+        abs_revision=400_000,
+        previous_abs_revision=300_000,
+        orbit_signature="orbit-rebased",
+        previous_orbit_signature="orbit-rebased",
+        orbit_revision=300_000,
+        previous_orbit_revision=300_000,
+    )
+    assert decision.direction == "abs_to_orbit"
+
+
+def test_bookorbit_only_movement_after_ambiguous_rebase_wins():
+    decision = _plan(
+        abs_audio_s=200.0,
+        orbit_audio_s=100.0,
+        abs_signature="abs-rebased",
+        previous_abs_signature="abs-rebased",
+        abs_revision=300_000,
+        previous_abs_revision=300_000,
+        orbit_signature="orbit-after-rebase",
+        previous_orbit_signature="orbit-rebased",
+        orbit_revision=400_000,
+        previous_orbit_revision=300_000,
+    )
+    assert decision.direction == "orbit_to_abs"
+
+
+def test_bookshift_target_echo_cannot_win_a_conflict():
+    decision = evaluate_reconciliation_plan(
+        abs_audio_s=100.0,
+        orbit_audio_s=200.0,
+        duration_s=DURATION,
+        min_delta_pct=MIN_DELTA,
+        orbit_signature="orbit-echo",
+        previous_orbit_signature="orbit-old",
+        active_sync_mode="FINE",
+        previous_sync_mode="FINE",
+        last_sync_source="abs",
+        last_sync_timestamp=200.0,
+        last_sync_progress=200.0,
+        abs_signature="abs-new",
+        previous_abs_signature="abs-old",
+        abs_revision=100_000,
+        previous_abs_revision=90_000,
+        orbit_revision=200_000,
+        previous_orbit_revision=90_000,
+    )
+    assert decision.direction == "skip"
+    assert decision.record_observations is True
+    assert "ambiguous" in decision.reason
 
 
 def test_stable_state_does_not_repeat_writes():

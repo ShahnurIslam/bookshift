@@ -60,8 +60,8 @@ the resolver can return a COARSE chapter locator.
 
 ### Reconciliation safety
 
-BookShift records signatures for both ABS and BookOrbit observations plus the
-ABS update revision. This lets it distinguish user activity from different
+BookShift records signatures and server update revisions for both ABS and
+BookOrbit observations. This lets it distinguish user activity from different
 representations of the same position.
 
 - Fresh ABS activity can update BookOrbit, including an intentional backward
@@ -72,8 +72,11 @@ representations of the same position.
 - Unchanged state is a no-op.
 - A COARSE → FINE reinterpretation without user activity is not treated as a
   new position.
-- Stale ABS revisions are ignored. If both sources changed between polls, the
-  runner reports a conflict instead of guessing.
+- Stale revisions are ignored. If both sources changed between polls and one
+  server revision is more than 30 seconds newer, that source wins. Revisions
+  within the 30-second deadband, missing revisions, and likely BookShift write
+  echoes are treated as ambiguous: no cross-service write occurs, but both
+  observations are rebased so the next one-sided user action can reconcile.
 - The first cycle after installation or schema migration establishes a safe
   baseline.
 

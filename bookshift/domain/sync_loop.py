@@ -95,6 +95,11 @@ def evaluate_reconciliation_plan(
     previous_abs_signature: str = "",
     abs_revision: int = 0,
     previous_abs_revision: int = 0,
+    orbit_revision: int = 0,
+    previous_orbit_revision: int = 0,
+    last_sync_timestamp: float = 0.0,
+    last_sync_progress: float = 0.0,
+    conflict_deadband_ms: int = 30_000,
     abs_mapped_ebook_pct: float | None = None,
     orbit_pct: float | None = None,
 ) -> SyncDecision:
@@ -116,15 +121,58 @@ def evaluate_reconciliation_plan(
     abs_changed = abs_signature_changed and abs_revision > previous_abs_revision
     abs_stale = abs_signature_changed and abs_revision <= previous_abs_revision
 
+    def target_is_bookshift_echo(source: str, revision_ms: int) -> bool:
+        """Reject a recent target-side revision that can be our own write echo."""
+        if not last_sync_source or not last_sync_timestamp:
+            return False
+        target_source = "bookorbit" if last_sync_source == "abs" else "abs"
+        if source != target_source:
+            return False
+        source_audio_s = orbit_audio_s if source == "bookorbit" else abs_audio_s
+        near_written_position = abs(float(source_audio_s or 0.0) - last_sync_progress) <= 2.0
+        near_write_time = abs((revision_ms / 1000.0) - last_sync_timestamp) <= 30.0
+        return near_written_position and near_write_time
+
+    def conflict_winner() -> str | None:
+        """Return the clearly newer non-echo source, else require a safe rebase."""
+        if abs_revision <= 0 or orbit_revision <= 0:
+            return None
+        if previous_orbit_revision > 0 and orbit_revision <= previous_orbit_revision:
+            return "abs" if not target_is_bookshift_echo("abs", abs_revision) else None
+        revision_delta = int(abs_revision) - int(orbit_revision)
+        if abs(revision_delta) <= max(0, int(conflict_deadband_ms)):
+            return None
+        source = "abs" if revision_delta > 0 else "bookorbit"
+        revision = abs_revision if source == "abs" else orbit_revision
+        if target_is_bookshift_echo(source, revision):
+            return None
+        return source
+
     if tracks_abs:
         if not has_previous or not has_previous_abs:
             return SyncDecision("skip", "progress observation baseline established")
         if orbit_changed and abs_changed:
-            return SyncDecision(
-                "skip",
-                "conflicting activity: ABS and BookOrbit both changed since last poll",
-                record_observations=False,
+            winner = conflict_winner()
+            if winner == "abs" and baseline.direction != "skip":
+                movement = "backward" if abs_audio_s < float(orbit_audio_s or 0.0) else "forward"
+                return SyncDecision(
+                    "abs_to_orbit",
+                    f"conflict resolved by newer ABS revision; ABS moved {movement} "
+                    f"to {float(abs_audio_s):.1f}s",
+                )
+            if winner == "bookorbit" and orbit_audio_s is not None and baseline.direction != "skip":
+                movement = "backward" if orbit_audio_s < abs_audio_s else "forward"
+                return SyncDecision(
+                    "orbit_to_abs",
+                    f"conflict resolved by newer BookOrbit revision; BookOrbit moved "
+                    f"{movement} to {float(orbit_audio_s):.1f}s",
+                )
+            reason = (
+                "ambiguous conflicting activity rebased without write"
+                if winner is None
+                else f"newer {winner} activity has no actionable mapped delta; observations rebased"
             )
+            return SyncDecision("skip", reason, record_observations=True)
         if abs_stale and not orbit_changed:
             return SyncDecision(
                 "skip", "stale ABS observation ignored", record_observations=False

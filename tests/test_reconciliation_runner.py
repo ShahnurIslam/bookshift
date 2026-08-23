@@ -17,9 +17,10 @@ class FakeRepository:
         self.book["last_sync_source"] = source
         self.book["last_sync_progress"] = progress_seconds
 
-    def update_orbit_observation(self, _book_id, *, signature, sync_mode):
+    def update_orbit_observation(self, _book_id, *, signature, sync_mode, updated_at=0):
         self.book["last_orbit_progress_signature"] = signature
         self.book["last_orbit_sync_mode"] = sync_mode
+        self.book["last_orbit_updated_at"] = updated_at
 
     def update_abs_observation(self, _book_id, *, signature, last_update):
         self.book["last_abs_progress_signature"] = signature
@@ -52,6 +53,7 @@ class FakeBookOrbit:
     def update_book_progress(self, _book_id, _file_id, payload):
         self.writes.append(dict(payload))
         self.progress.update(payload)
+        self.progress["updatedAt"] = int(self.progress.get("updatedAt") or 0) + 1
         return 201, None
 
 
@@ -81,6 +83,7 @@ def _book(*, abs_seconds: float, abs_revision: int, orbit: dict) -> dict:
             float(orbit["percentage"]), str(orbit["koreaderProgress"])
         ),
         "last_orbit_sync_mode": "FINE",
+        "last_orbit_updated_at": int(orbit.get("updatedAt") or 0),
         "last_abs_progress_signature": abs_progress_signature(abs_seconds, False),
         "last_abs_last_update": abs_revision,
     }
@@ -200,6 +203,62 @@ def test_stable_state_is_a_noop_and_records_no_write():
     assert result["direction"] == "skip"
     assert not abs_adapter.writes
     assert not orbit_adapter.writes
+
+
+def test_ambiguous_conflict_rebases_then_next_abs_movement_wins():
+    previous_orbit = {
+        "percentage": 15.0,
+        "koreaderProgress": "/body/DocFragment[4]/body/p[1]/text().0",
+        "updatedAt": 1_700_000_190_000,
+    }
+    current_orbit = {
+        "percentage": 10.0,
+        "koreaderProgress": "/body/DocFragment[3]/body/p[1]/text().0",
+        "updatedAt": 1_700_000_210_000,
+    }
+    book = _book(
+        abs_seconds=150.0,
+        abs_revision=1_700_000_190_000,
+        orbit=previous_orbit,
+    )
+    repo = FakeRepository(book)
+    abs_adapter = FakeABS(
+        {
+            "currentTime": 200.0,
+            "duration": 1000.0,
+            "lastUpdate": 1_700_000_200_000,
+            "isFinished": False,
+        }
+    )
+    orbit_adapter = FakeBookOrbit(current_orbit)
+    resolver = FakeResolver(
+        forward=_forward(200.0, 20.0),
+        reverse_by_xpointer={
+            current_orbit["koreaderProgress"]: {
+                "sync_mode": "FINE",
+                "approximate": False,
+                "audio_seconds": 100.0,
+            }
+        },
+    )
+    runner = ReconciliationRunner(repo, abs_adapter, orbit_adapter, resolver, execute=True)
+
+    ambiguous = runner.reconcile_book(book)
+    assert ambiguous["direction"] == "skip"
+    assert "ambiguous" in ambiguous["reason"]
+    assert not abs_adapter.writes
+    assert not orbit_adapter.writes
+    assert book["last_abs_last_update"] == 1_700_000_200_000
+    assert book["last_orbit_updated_at"] == 1_700_000_210_000
+
+    abs_adapter.progress["currentTime"] = 250.0
+    abs_adapter.progress["lastUpdate"] = 1_700_000_300_000
+    resolver.forward = _forward(250.0, 25.0)
+    after_rebase = runner.reconcile_book(book)
+
+    assert after_rebase["direction"] == "abs_to_orbit"
+    assert after_rebase["status"] == "synced"
+    assert len(orbit_adapter.writes) == 1
 
 
 def test_unchanged_coarse_to_fine_reinterpretation_is_not_activity():
