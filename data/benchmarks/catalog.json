@@ -1,0 +1,19 @@
+{
+  "schema": "bookshift-benchmark-catalog/v1",
+  "books": [
+    {
+      "key": "dr_jekyll",
+      "title": "The Strange Case of Dr Jekyll and Mr Hyde",
+      "tier": 1,
+      "public_domain": true,
+      "epub": "data/benchmarks/dr_jekyll/dr_jekyll.epub",
+      "audio_dir": "data/benchmarks/dr_jekyll/audio",
+      "audio_duration_seconds": 10192,
+      "coarse_map": null,
+      "fine_alignment_map": null,
+      "fine_locator_table": null,
+      "logical_book_id": null,
+      "synthetic_abs": true
+    }
+  ]
+}

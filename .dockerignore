@@ -1,0 +1,12 @@
+.git
+.gitignore
+**/__pycache__
+**/*.pyc
+.pytest_cache
+data/
+logs/
+library/
+*.log
+.env
+GATE_*_REPORT.md
+BOOKSHIFT_*.md

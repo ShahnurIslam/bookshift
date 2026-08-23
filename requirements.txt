@@ -1,0 +1,2 @@
+# BookShift runtime — stdlib-only design; no pip dependencies required.
+# Install with: pip install -e ".[dev]" for development tools.

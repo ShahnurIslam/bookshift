@@ -1,0 +1,2 @@
+# Runtime: stdlib only. Pytest is installed in the Docker image for in-container verification.
+pytest>=7.0,<9

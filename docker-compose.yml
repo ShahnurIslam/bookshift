@@ -1,0 +1,57 @@
+services:
+  bookshift-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bookshift:latest
+    container_name: bookshift-core
+    restart: unless-stopped
+    ports:
+      - "18001:18001"
+    env_file:
+      - .env
+    environment:
+      BOOKSHIFT_SYNC_HOST: "0.0.0.0"
+      BOOKSHIFT_DB_PATH: /data/pipeline_state.db
+      BOOKSHIFT_DATA_DIR: /data
+      BOOKSHIFT_BOOKS_DIR: /library
+      BOOKSHIFT_AUDIOBOOKS_DIR: /library
+    volumes:
+      - ./data:/data
+      - ./library:/library:ro
+      # Locator artifacts referenced by absolute paths in pipeline_state.db
+      - ${BOOKSHIFT_ARTIFACTS_DIR:-./data/benchmarks/artifacts}:/data/benchmarks/artifacts:ro
+    command: ["python3", "-m", "bookshift", "server", "--mark-ready"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18001/api/v1/sync/health').read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+  bookshift-worker:
+    profiles: ["worker"]
+    image: bookshift:latest
+    container_name: bookshift-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      BOOKSHIFT_DB_PATH: /data/pipeline_state.db
+      BOOKSHIFT_DATA_DIR: /data
+      BOOKSHIFT_BOOKS_DIR: /library
+      BOOKSHIFT_AUDIOBOOKS_DIR: /library
+    volumes:
+      - ./data:/data
+      - ./library:/library:ro
+      - ${BOOKSHIFT_ARTIFACTS_DIR:-./data/benchmarks/artifacts}:/data/benchmarks/artifacts:ro
+    command: ["python3", "-m", "bookshift", "worker"]
+    depends_on:
+      bookshift-core:
+        condition: service_healthy

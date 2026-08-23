@@ -1,0 +1,193 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "BookShift Sync API",
+    "version": "0.1.0-beta",
+    "description": "Progressive audiobook ↔ ebook position sync. COARSE chapter-level lookups are available immediately after ingest; FINE sentence-level lookups after background alignment and atomic promotion.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:18001",
+      "description": "Local sync API (default docker-compose port)"
+    }
+  ],
+  "paths": {
+    "/api/v1/sync/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Service health and loaded book sync status",
+        "tags": ["Sync"],
+        "responses": {
+          "200": {
+            "description": "API is healthy",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sync/position": {
+      "get": {
+        "operationId": "getPosition",
+        "summary": "Resolve audiobook timestamp or KOReader XPointer to a cross-media position",
+        "tags": ["Sync"],
+        "parameters": [
+          {
+            "name": "book_id",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 },
+            "description": "Logical book identifier from pipeline_state.db"
+          },
+          {
+            "name": "timestamp",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "number", "minimum": 0 },
+            "description": "Audiobook playback position in seconds (mutually exclusive with xpointer)"
+          },
+          {
+            "name": "xpointer",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "CREngine XPointer from KOReader (mutually exclusive with timestamp)"
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["abs", "koreader", "bridge"] },
+            "description": "Progress source for sync-loop debounce metadata"
+          },
+          {
+            "name": "record",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "boolean", "default": false },
+            "description": "When true with source, persist sync metadata to pipeline_state.db"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Position resolved",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PositionResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "404": {
+            "description": "Book or locator not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BookSyncStatus": {
+        "type": "object",
+        "required": ["book_id", "title", "active_sync_mode", "fine_loaded", "fine_count", "coarse_loaded"],
+        "properties": {
+          "book_id": { "type": "integer", "example": 1 },
+          "title": { "type": "string", "example": "The Strange Case of Dr Jekyll and Mr Hyde" },
+          "active_sync_mode": {
+            "type": "string",
+            "enum": ["COARSE", "FINE", "NONE"],
+            "description": "Current sync tier exposed to clients"
+          },
+          "fine_loaded": { "type": "boolean" },
+          "fine_count": { "type": "integer", "minimum": 0 },
+          "coarse_loaded": { "type": "boolean" }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": ["ok", "service", "loaded_at", "books"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "service": { "type": "string", "example": "storyteller-poc-sync-api" },
+          "gate": { "type": "integer", "example": 17 },
+          "loaded_at": { "type": "string", "format": "date-time" },
+          "books": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BookSyncStatus" }
+          },
+          "http_ms": { "type": "number", "description": "Server-side request timing (ms)" }
+        }
+      },
+      "PositionResponse": {
+        "type": "object",
+        "required": ["ok", "sync_mode", "approximate", "book_id", "title"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "sync_mode": { "type": "string", "enum": ["COARSE", "FINE"] },
+          "approximate": {
+            "type": "boolean",
+            "description": "True for COARSE chapter-level interpolation"
+          },
+          "book_id": { "type": "integer", "example": 1 },
+          "title": { "type": "string", "example": "Example Book" },
+          "audio_seconds": { "type": "number" },
+          "audio_end_seconds": { "type": "number" },
+          "chapter_index": { "type": "integer", "nullable": true },
+          "doc_fragment_index": { "type": "integer", "nullable": true },
+          "xpointer": { "type": "string" },
+          "text_snippet": { "type": "string" },
+          "chapter_title": { "type": "string", "nullable": true },
+          "element_id": { "type": "string", "nullable": true },
+          "epub_cfi": { "type": "string", "nullable": true },
+          "query_timestamp": { "type": "number", "nullable": true },
+          "local_fraction": { "type": "number", "nullable": true },
+          "coarse_confidence": { "type": "number", "nullable": true },
+          "degraded_from": { "type": "string", "nullable": true },
+          "sync_suppressed": { "type": "boolean" },
+          "sync_suppress_reason": { "type": "string" },
+          "lookup_ms": { "type": "number" },
+          "http_ms": { "type": "number" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["ok", "error"],
+        "properties": {
+          "ok": { "type": "boolean", "const": false },
+          "error": { "type": "string" },
+          "book_id": { "type": "integer" },
+          "path": { "type": "string" },
+          "detail": { "type": "string" },
+          "http_ms": { "type": "number" }
+        }
+      }
+    }
+  }
+}
