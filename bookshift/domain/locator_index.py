@@ -68,7 +68,7 @@ class FineLocatorIndex:
 
 
 class CoarseChapterIndex:
-    """Gate 14A chapter interpolation without BookOrbit Docker calls."""
+    """Chapter interpolation without BookOrbit Docker calls."""
 
     def __init__(self, chapter_map: dict[str, Any], *, path: str = ""):
         self.path = path

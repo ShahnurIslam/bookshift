@@ -316,15 +316,10 @@ class BenchmarkRunner:
             return int(s.getsockname()[1])
 
     def _compile_available(self) -> bool:
-        try:
-            import analysis.compile_locators  # noqa: F401
-
-            return True
-        except ImportError:
-            return False
+        return True
 
     def _compile_fine_locators(self) -> tuple[float, list[dict[str, Any]]]:
-        from analysis.compile_locators import run_python_compiler
+        from bookshift.domain.locators.compiler import compile_alignment_map
 
         align = self.fixture.fine_alignment_map
         extract = self.fixture.storyteller_extract
@@ -334,21 +329,26 @@ class BenchmarkRunner:
         out_dir = REPO_ROOT / "data" / "benchmarks" / "artifacts"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"compiled_{self.fixture.key}.enriched.json"
-        run_python_compiler(
-            map_path=align,
-            extract_dir=extract or out_dir,
-            epub=self.fixture.epub,
+        enriched = compile_alignment_map(
+            self.fixture.epub,
+            align,
             sequential=True,
             skip_assert=extract is None or not extract.is_dir(),
-            out_path=out_path,
+            storyteller_extract=extract,
         )
-        data = json.loads(out_path.read_text(encoding="utf-8"))
-        rows = list((data.get("locators") or data.get("sentences") or []))
-        # Build locator table shape if compile returned sentences only
-        if rows and "xpointer" not in rows[0]:
-            from analysis.compile_locators import build_locator_table
-
-            rows = build_locator_table(data)
+        out_path.write_text(json.dumps(enriched, indent=2), encoding="utf-8")
+        rows = []
+        for sentence in enriched.get("sentences") or []:
+            xpointer = sentence.get("koreader_xpointer") or sentence.get("xpointer")
+            if not xpointer:
+                continue
+            rows.append(
+                {
+                    **sentence,
+                    "xpointer": xpointer,
+                    "chapter_index": sentence.get("bookorbit_chapter_index", sentence.get("chapter_index")),
+                }
+            )
         elapsed = time.perf_counter() - t0
         return elapsed, rows
 

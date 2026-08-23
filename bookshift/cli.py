@@ -41,7 +41,7 @@ def _build_parser() -> argparse.ArgumentParser:
     init_p = sub.add_parser("init-db", help="Initialize or migrate the SQLite database")
     init_p.add_argument("--db", type=Path, default=None)
 
-    bench_p = sub.add_parser("benchmark", help="Run progressive-sync benchmarks (Gate 5)")
+    bench_p = sub.add_parser("benchmark", help="Run progressive-sync benchmarks")
     bench_p.add_argument("--catalog", type=Path, default=None)
     bench_p.add_argument("--books", default="")
     bench_p.add_argument("--skip-compile", action="store_true")

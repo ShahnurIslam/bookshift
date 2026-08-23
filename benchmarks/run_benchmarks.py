@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BookShift Gate 5 — progressive sync benchmark runner."""
+"""BookShift progressive-sync benchmark runner."""
 
 from __future__ import annotations
 

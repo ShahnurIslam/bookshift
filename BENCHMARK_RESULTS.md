@@ -76,11 +76,11 @@ The 1.4 s in-sentence figure is half a typical spoken sentence — the quantizat
 
 COARSE locators are chapter-level (`/body/DocFragment[N]/body/text().0`). Spot-check Δt is `|t_query − t_FINE(XPointer_coarse)|`: the FINE timestamp of that chapter locator (first aligned sentence in the DocFragment), or `|t_coarse − t_FINE(sentence)|` in the reverse direction (COARSE reverse snaps to chapter `abs_start`). Errors of hundreds to thousands of seconds are **chapter duration**, not a resolver bug.
 
-This is a different metric from Gate 5 “Mean COARSE Error ± 7.7 s”, which compared the COARSE *returned playback time* (the query `t` itself on a forward lookup) to the FINE sentence start. Both numbers are real; they answer different questions.
+This is a different metric from the historical “Mean COARSE Error ± 7.7 s”, which compared the COARSE *returned playback time* (the query `t` itself on a forward lookup) to the FINE sentence start. Both numbers are real; they answer different questions.
 
 ## Historical COARSE / compile-only (no live Whisper)
 
-Earlier Gate 5 run (`--skip-transcription`, 2026-08-14T08:40:57Z). FINE Ready on the last row is in-process locator compile from an existing alignment map, not ASR.
+Earlier benchmark run (`--skip-transcription`, 2026-08-14T08:40:57Z). FINE Ready on the last row is in-process locator compile from an existing alignment map, not ASR.
 
 These archival rows are retained for transparency. Their generated catalogues
 and maps are not distributed, so they are not clean-checkout reproduction

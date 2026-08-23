@@ -64,7 +64,7 @@ class SQLiteStateRepository:
             ("active_sync_mode", "TEXT"),
             ("koreader_endpoint_status", "TEXT"),
             ("koreader_endpoint_url", "TEXT"),
-            ("gate_19_status", "TEXT"),
+            ("alignment_worker_status", "TEXT"),
             ("alignment_job_status", "TEXT"),
             ("fine_locator_table_path", "TEXT"),
             ("fine_map_path", "TEXT"),
@@ -101,7 +101,7 @@ class SQLiteStateRepository:
             """
         )
         conn.execute(
-            "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('gate_19_worker', '1')"
+            "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('alignment_worker', '1')"
         )
 
     def _migrate_to_v8(self, conn: sqlite3.Connection) -> None:
@@ -136,7 +136,7 @@ class SQLiteStateRepository:
                 """
             )
         conn.execute(
-            "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('gate_2_correctness', '1')"
+            "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('correctness_hardening', '1')"
         )
 
     def _migrate_to_v9(self, conn: sqlite3.Connection) -> None:
@@ -666,7 +666,7 @@ class SQLiteStateRepository:
                 (endpoint_url, book_id),
             )
             conn.execute(
-                "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('gate_17_endpoint', '1')"
+                "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('koreader_endpoint', '1')"
             )
             conn.commit()
         finally:

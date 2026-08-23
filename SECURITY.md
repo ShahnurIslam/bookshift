@@ -11,7 +11,8 @@
 
 **Please do not open public GitHub issues for security vulnerabilities.**
 
-Email security reports to the maintainers (configure `security@` on your fork before public release) with:
+Use GitHub's private vulnerability-reporting form in the repository Security
+tab. Include:
 
 1. Description of the vulnerability
 2. Steps to reproduce
@@ -27,7 +28,7 @@ In scope:
 - BookShift sync API (`bookshift/server/`)
 - SQLite state handling and CAS promotion
 - Docker deployment configuration
-- Public repository export sanitization (`scripts/export_public_repo.py`)
+- Publication configuration and documented secret-handling practices
 
 Out of scope:
 
@@ -39,7 +40,8 @@ Out of scope:
 - Run containers as non-root (`bookshift`, UID 1000).
 - Do not expose port 18001 to the public internet without authentication.
 - Keep `.env` out of version control; rotate `BOOKSHIFT_ABS_TOKEN` if leaked.
-- Run `scripts/export_public_repo.py` before any public release to verify zero secret/path leaks.
+- Before releasing, scan tracked files for credentials, private keys,
+  machine-specific paths, runtime databases, logs, generated maps, and media.
 
 ## Security audit
 

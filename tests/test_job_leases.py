@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from bookshift.storage.state_repo import SQLiteStateRepository
+from bookshift.worker.alignment_worker import _verify_fine_artifacts
 
 
 def _seed_db(path: Path) -> tuple[SQLiteStateRepository, int, int]:
@@ -105,3 +106,27 @@ def test_fail_alignment_job_retries(tmp_path: Path):
     assert job["status"] == "QUEUED_WAITING_FOR_WORKER"
     assert int(job["retry_count"]) == 1
     assert row is not None
+
+
+def test_fine_artifact_verification_is_title_and_id_agnostic(tmp_path: Path):
+    fine_map = tmp_path / "fine-map.json"
+    fine_table = tmp_path / "fine-table.json"
+    fine_map.write_text('{"sentences": []}', encoding="utf-8")
+    fine_table.write_text('{"locators": []}', encoding="utf-8")
+
+    _verify_fine_artifacts(
+        {
+            "fine_map_path": str(fine_map),
+            "fine_locator_table_path": str(fine_table),
+        }
+    )
+
+
+def test_fine_artifact_verification_rejects_missing_files(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="fine_map_path"):
+        _verify_fine_artifacts(
+            {
+                "fine_map_path": str(tmp_path / "missing-map.json"),
+                "fine_locator_table_path": str(tmp_path / "missing-table.json"),
+            }
+        )

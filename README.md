@@ -32,10 +32,11 @@ BookOrbit file progress ───────────────► KOReade
 ```
 
 The Docker Compose `bookshift-core` service runs the HTTP mapping API. The
-optional `bookshift-worker` service performs alignment work. Bidirectional
-progress reconciliation is a separate runner; it is not silently running in
-the API container. Run it manually or with the supplied user-level systemd
-timer.
+optional `bookshift-worker` service orchestrates external alignment work and
+promotes valid precomputed FINE artifacts; it does not bundle Whisper or a
+title-specific compiler script. Bidirectional progress reconciliation is a
+separate runner; it is not silently running in the API container. Run it
+manually or with the supplied user-level systemd timer.
 
 ### Progressive mapping
 

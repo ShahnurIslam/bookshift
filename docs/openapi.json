@@ -135,8 +135,7 @@
         "required": ["ok", "service", "loaded_at", "books"],
         "properties": {
           "ok": { "type": "boolean", "const": true },
-          "service": { "type": "string", "example": "storyteller-poc-sync-api" },
-          "gate": { "type": "integer", "example": 17 },
+          "service": { "type": "string", "example": "bookshift-sync-api" },
           "loaded_at": { "type": "string", "format": "date-time" },
           "books": {
             "type": "array",

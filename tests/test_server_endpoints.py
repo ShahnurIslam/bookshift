@@ -73,8 +73,8 @@ def test_health_endpoint():
         code, payload = _get_json(f"{base}/api/v1/sync/health")
         assert code == 200
         assert payload["ok"] is True
-        assert payload["service"] == "storyteller-poc-sync-api"
-        assert payload["gate"] == 17
+        assert payload["service"] == "bookshift-sync-api"
+        assert "gate" not in payload
         assert len(payload["books"]) == 1
         assert payload["books"][0]["book_id"] == 1
     finally:

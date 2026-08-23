@@ -1,1 +1,1 @@
-"""HTTP sync server (Gate 17)."""
+"""BookShift HTTP sync server."""

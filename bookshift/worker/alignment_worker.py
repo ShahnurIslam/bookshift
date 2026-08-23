@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gate 19 — Background alignment worker & M1 auto-offload orchestrator.
+"""Background alignment worker and external-inference orchestrator.
 
 Polls pipeline_state.db for COARSE books that are not yet FINE-ready, probes
 the configured M1 whisper-server, and either dispatches Storyteller processing
@@ -11,8 +11,6 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
-import subprocess
-import sys
 import time
 import urllib.error
 import urllib.parse
@@ -23,19 +21,15 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from bookshift.adapters.alignment import AlignmentAdapter
-from bookshift.config import REPO_ROOT, get_settings
+from bookshift.config import get_settings
 from bookshift.storage.state_repo import SQLiteStateRepository
 
 _settings = get_settings()
 _alignment = AlignmentAdapter(_settings)
-ANALYSIS = _settings.analysis_dir
-POC = REPO_ROOT
 DEFAULT_DB = _settings.db_path
 STORYTELLER_DB = _settings.storyteller_db_path
 DEFAULT_M1 = _settings.m1_whisper_url
 STORYTELLER_API = _settings.storyteller_url
-COMPILE_SCRIPT = ANALYSIS / "compile_locators.py"
-VALIDATE_SCRIPT = ANALYSIS / "gate16_bidirectional_validation.py"
 
 JOB_PENDING = "PENDING"
 JOB_WAITING = "QUEUED_WAITING_FOR_WORKER"
@@ -202,7 +196,7 @@ def promote_book(
     job_id: int | None = None,
     db_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Gate 15 compile + Gate 16 validate + FINE promotion."""
+    """Compile, validate, and promote a FINE mapping."""
     log: dict[str, Any] = {"book_id": book_id, "dry_run": dry_run, "steps": []}
     book = conn.execute("SELECT * FROM logical_books WHERE id = ?", (book_id,)).fetchone()
     if book is None:
@@ -211,22 +205,25 @@ def promote_book(
 
     # Keep COARSE available until promotion commits.
     if dry_run:
-        log["steps"].append("compile_locators.py (skipped dry-run)")
-        log["steps"].append("gate16_bidirectional_validation.py (skipped dry-run)")
+        log["steps"].append("verify precomputed FINE artifacts (skipped dry-run)")
     else:
-        compile_rc = (run_compile or _run_compile)(book_id)
-        log["steps"].append(f"compile_locators rc={compile_rc}")
-        if compile_rc != 0:
-            raise RuntimeError(f"compile_locators failed rc={compile_rc}")
-        validate_rc = (run_validate or _run_validate)(book_id)
-        log["steps"].append(f"gate16_validate rc={validate_rc}")
-        if validate_rc != 0:
-            raise RuntimeError(f"gate16 validation failed rc={validate_rc}")
+        if run_compile is not None:
+            compile_rc = run_compile(book_id)
+            log["steps"].append(f"external compile rc={compile_rc}")
+            if compile_rc != 0:
+                raise RuntimeError(f"external compile failed rc={compile_rc}")
+        if run_validate is not None:
+            validate_rc = run_validate(book_id)
+            log["steps"].append(f"external validation rc={validate_rc}")
+            if validate_rc != 0:
+                raise RuntimeError(f"external validation failed rc={validate_rc}")
         refreshed = conn.execute(
             "SELECT * FROM logical_books WHERE id = ?", (book_id,)
         ).fetchone()
         if refreshed is not None:
             book_row = dict(refreshed)
+        _verify_fine_artifacts(book_row)
+        log["steps"].append("verified precomputed FINE artifacts")
 
     if dry_run:
         conn.execute(
@@ -274,65 +271,20 @@ def promote_book(
     return log
 
 
-def find_readaloud_epub(title: str) -> Path | None:
-    raw = _alignment.find_readaloud_epub(title)
-    return Path(raw) if raw else None
-
-
-def _run_compile(book_id: int) -> int:
-    if book_id == 13:
-        cmd = [
-            sys.executable,
-            str(COMPILE_SCRIPT),
-            "--skip-extract",
-            "--skip-state-update",
-        ]
-    elif book_id == 1:
-        readaloud = find_readaloud_epub("Example Book")
-        if readaloud is None:
-            print("ERROR: Example Book readaloud EPUB not found", flush=True)
-            return 2
-        cmd = [
-            sys.executable,
-            str(COMPILE_SCRIPT),
-            "--logical-book-id",
-            "1",
-            "--readaloud-epub",
-            str(readaloud),
-            "--skip-state-update",
-        ]
-    else:
-        print(f"ERROR: compile not allowlisted for book_id={book_id}", flush=True)
-        return 2
-    proc = subprocess.run(cmd, cwd=str(ANALYSIS), check=False)
-    return int(proc.returncode)
-
-
-def _run_validate(book_id: int) -> int:
-    if book_id == 13:
-        cmd = [sys.executable, str(VALIDATE_SCRIPT)]
-    elif book_id == 1:
-        cmd = [
-            sys.executable,
-            str(VALIDATE_SCRIPT),
-            "--table",
-            str(ANALYSIS / "exact_locator_table_atob.json"),
-            "--map",
-            str(ANALYSIS / "alignment_map_full_atob.json"),
-            "--results",
-            str(ANALYSIS / "gate16_validation_results_atob.json"),
-            "--report",
-            str(ANALYSIS / "GATE_16_ATOB_REPORT.md"),
-            "--logical-book-id",
-            "1",
-            "--no-require-fixture-xp",
-            "--skip-state-update",
-        ]
-    else:
-        print(f"ERROR: validate not allowlisted for book_id={book_id}", flush=True)
-        return 2
-    proc = subprocess.run(cmd, cwd=str(ANALYSIS), check=False)
-    return int(proc.returncode)
+def _verify_fine_artifacts(book_row: dict[str, Any]) -> None:
+    """Reject promotion unless portable, precomputed FINE artifacts exist."""
+    documents: dict[str, Any] = {}
+    for field in ("fine_map_path", "fine_locator_table_path"):
+        path = Path(str(book_row.get(field) or ""))
+        if not path.is_file():
+            raise RuntimeError(f"{field} is missing or unreadable")
+        try:
+            documents[field] = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"{field} is not valid JSON") from exc
+    table = documents["fine_locator_table_path"]
+    if not isinstance(table, dict) or not isinstance(table.get("locators"), list):
+        raise RuntimeError("fine_locator_table_path must contain a locators array")
 
 
 def _job_to_dict(job: Any) -> dict[str, Any]:
@@ -694,18 +646,17 @@ def _smil_ready(book_id: int) -> bool:
         st.close()
 
 
-def mark_worker_ready(db_path: Path, book_id: int = 13) -> None:
+def mark_worker_ready(db_path: Path) -> None:
     migrate_schema(db_path)
     conn = connect(db_path)
     try:
         conn.execute(
             """
             UPDATE logical_books
-            SET gate_19_status = 'READY',
+            SET alignment_worker_status = 'READY',
                 updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """,
-            (book_id,),
+            WHERE active_sync_mode IN ('COARSE', 'FINE')
+            """
         )
         conn.commit()
     finally:
@@ -747,7 +698,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.mark_ready:
         mark_worker_ready(args.db)
-        print("pipeline_state: gate_19_status=READY", flush=True)
+        print("pipeline_state: alignment_worker_status=READY", flush=True)
 
     while True:
         summary = tick(

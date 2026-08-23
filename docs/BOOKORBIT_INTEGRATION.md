@@ -1,4 +1,4 @@
-# BookOrbit Integration (BookShift Gate 3)
+# BookOrbit Integration
 
 BookShift interacts with BookOrbit **only through its REST API**. Locator generation (CREngine XPointers and EPUB CFIs) runs **in-process** inside BookShift; no `docker exec`, container IDs, or host volume staging under BookOrbit appdata are required.
 
@@ -30,7 +30,7 @@ Adapter methods:
 
 ## Progress Payload Schema
 
-BookShift writes the same payload used by Gate 7/17 sync bridges:
+BookShift writes the following progress payload:
 
 ```json
 {
@@ -62,17 +62,15 @@ Module: `bookshift/domain/locators/`
 | `cfi.py` | Parse/build `epubcfi(...)` fragments |
 | `compiler.py` | EPUB spine walk, collapsed-text search, alignment map enrichment |
 
-Analysis scripts delegate here:
-
-- `analysis/coarse_chapter_mapper.py` — coarse chapter ↔ XPointer (replaces `coarse_xpointer_bo.js`)
-- `analysis/compile_locators.py` — fine sentence locators (replaces `compile_locators_bo.js`)
-
-Legacy Node scripts remain in `analysis/` for reference but are **no longer executed**.
+The public implementation is in the `bookshift.domain.locators` package. The
+reconciliation runner consumes the resulting locator data through the mapping
+API; it does not execute code inside BookOrbit or depend on private analysis
+scripts.
 
 ## COARSE-First Invariant
 
-Gate 3 changes only **how** locators are computed. Progressive sync behaviour is unchanged:
+Progressive sync preserves these invariants:
 
-1. **COARSE** chapter maps are available immediately after Gate 14A mapping.
-2. **FINE** locators promote only after alignment worker CAS success (Gate 2).
+1. **COARSE** chapter maps become available after chapter pairing.
+2. **FINE** locators promote only after alignment compilation and CAS success.
 3. BookOrbit REST progress writes continue to use whichever sync mode is active in `pipeline_state.db`.

@@ -23,8 +23,8 @@ def is_valid_crengine_xpointer(xpointer: str) -> bool:
 def build_xpointer_url(
     xpointer: str,
     *,
+    book_id: int,
     base: str | None = None,
-    book_id: int = 13,
 ) -> str:
     settings = get_settings()
     base = (base or settings.sync_api_base()).rstrip("/")
@@ -35,8 +35,8 @@ def build_xpointer_url(
 def build_timestamp_url(
     timestamp: float,
     *,
+    book_id: int,
     base: str | None = None,
-    book_id: int = 13,
 ) -> str:
     settings = get_settings()
     base = (base or settings.sync_api_base()).rstrip("/")

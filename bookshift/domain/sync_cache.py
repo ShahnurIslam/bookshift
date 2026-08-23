@@ -121,9 +121,6 @@ def load_cache_from_rows(
     rows: list[dict[str, Any]],
     *,
     db_path: Path,
-    default_fine_table: Path,
-    default_coarse_map: Path,
-    lw_book_id: int = 13,
 ) -> SyncCache:
     cache = SyncCache(
         db_path=str(db_path),
@@ -137,12 +134,7 @@ def load_cache_from_rows(
             active_sync_mode=mode,
         )
         fine_path = row.get("fine_locator_table_path")
-        if not fine_path and int(row["id"]) == lw_book_id and default_fine_table.is_file():
-            fine_path = str(default_fine_table)
-
         coarse_path = row.get("coarse_map_path")
-        if not coarse_path and int(row["id"]) == lw_book_id and default_coarse_map.is_file():
-            coarse_path = str(default_coarse_map)
 
         if fine_path and Path(fine_path).is_file():
             doc = json.loads(Path(fine_path).read_text(encoding="utf-8"))

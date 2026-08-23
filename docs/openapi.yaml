@@ -116,8 +116,7 @@ components:
           const: true
         service:
           type: string
-        gate:
-          type: integer
+          example: bookshift-sync-api
         loaded_at:
           type: string
           format: date-time

@@ -1,4 +1,4 @@
-"""Gate 5 benchmark harness tests."""
+"""Benchmark harness tests."""
 
 from __future__ import annotations
 

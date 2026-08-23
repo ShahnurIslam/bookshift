@@ -1,4 +1,4 @@
-"""Gate 17 sync API — stdlib ThreadingHTTPServer."""
+"""BookShift sync API implemented with the stdlib ThreadingHTTPServer."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 from bookshift.config import Settings, get_settings
-from bookshift.domain.locator_index import FineLocatorIndex
 from bookshift.domain.sync_loop import SyncLoopGuard
 from datetime import datetime, timezone
 from bookshift.domain.sync_cache import SyncCache, load_cache_from_rows, resolve_position
@@ -32,28 +31,23 @@ def load_cache(db_path: Path | None = None, settings: Settings | None = None) ->
     cache = load_cache_from_rows(
         rows,
         db_path=path,
-        default_fine_table=cfg.analysis_dir / "exact_locator_table.json",
-        default_coarse_map=cfg.analysis_dir / "coarse_chapter_map.json",
     )
-    lw = cache.books.get(13)
-    default_fine = cfg.analysis_dir / "exact_locator_table.json"
-    if lw and lw.fine is None and default_fine.is_file():
-        doc = json.loads(default_fine.read_text(encoding="utf-8"))
-        lw.fine = FineLocatorIndex(doc.get("locators") or [], path=str(default_fine))
-        lw.fine_table_path = str(default_fine)
-        if lw.active_sync_mode in ("", "NONE", None):
-            lw.active_sync_mode = "FINE"
     return cache
 
 
 def mark_endpoint_ready(
     db_path: Path | None = None,
-    book_id: int = 13,
+    book_id: int | None = None,
     settings: Settings | None = None,
 ) -> None:
     cfg = settings or get_settings()
     repo = SQLiteStateRepository(Path(db_path or cfg.db_path), cfg)
-    repo.mark_koreader_endpoint_ready(book_id, f"{cfg.sync_api_base()}/api/v1/sync/position")
+    book_ids = [book_id] if book_id is not None else [int(row["id"]) for row in repo.list_logical_books()]
+    for logical_book_id in book_ids:
+        repo.mark_koreader_endpoint_ready(
+            logical_book_id,
+            f"{cfg.sync_api_base()}/api/v1/sync/position",
+        )
 
 
 class SyncAPIHandler(BaseHTTPRequestHandler):
@@ -101,8 +95,7 @@ class SyncAPIHandler(BaseHTTPRequestHandler):
                 200,
                 {
                     "ok": True,
-                    "service": "storyteller-poc-sync-api",
-                    "gate": 17,
+                    "service": "bookshift-sync-api",
                     "loaded_at": self.cache.loaded_at,
                     "books": books,
                 },
@@ -210,7 +203,7 @@ def run_server(
 
 def main(argv: list[str] | None = None) -> int:
     cfg = get_settings()
-    ap = argparse.ArgumentParser(description="BookShift Gate 17 sync API")
+    ap = argparse.ArgumentParser(description="BookShift sync API")
     ap.add_argument("--host", default=cfg.sync_host)
     ap.add_argument("--port", type=int, default=cfg.sync_port)
     ap.add_argument("--db", type=Path, default=cfg.db_path)
@@ -223,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"WARN: no books loaded from {args.db}", flush=True)
 
     if args.mark_ready:
-        mark_endpoint_ready(args.db, book_id=13, settings=cfg)
+        mark_endpoint_ready(args.db, settings=cfg)
         print("pipeline_state: koreader_endpoint_status=READY", flush=True)
 
     if args.reload_only:
@@ -231,9 +224,9 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(
                 {
                     "books": len(cache.books),
-                    "lw_fine": len(cache.books[13].fine.rows)
-                    if 13 in cache.books and cache.books[13].fine
-                    else 0,
+                    "fine_locators": sum(
+                        len(book.fine.rows) for book in cache.books.values() if book.fine
+                    ),
                 }
             )
         )

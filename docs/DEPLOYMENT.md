@@ -3,7 +3,8 @@
 BookShift has separate runtime roles:
 
 1. `bookshift-core` runs the HTTP timestamp/locator mapping API.
-2. `bookshift-worker` optionally processes already-enqueued alignment work.
+2. `bookshift-worker` optionally orchestrates already-enqueued external
+   alignment work and promotes precomputed FINE artifacts.
 3. `bookshift sync` polls Audiobookshelf and BookOrbit and reconciles progress.
 
 Docker Compose starts the first role and, when requested, the second. It does
@@ -73,8 +74,10 @@ docker compose logs --tail=100 bookshift-worker
 ```
 
 FINE alignment may require a reachable Whisper-compatible endpoint and/or
-Storyteller data, depending on the configured workflow. COARSE mappings remain
-usable while FINE work is pending.
+Storyteller data, depending on the configured workflow. The public worker does
+not bundle ASR or title-specific compiler scripts; promotion requires valid
+`fine_map_path` and `fine_locator_table_path` artifacts already recorded for
+the book. COARSE mappings remain usable while FINE work is pending.
 
 ## Install the host reconciliation runner
 

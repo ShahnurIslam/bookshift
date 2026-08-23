@@ -249,7 +249,7 @@ def render_spot_check(results: Iterable[SpotCheckResult]) -> str:
             "- FINE exact sentence match rate must be **100%** against the compiled index.",
             "- Ebook ➔ audio ➔ ebook must return the **same XPointer**.",
             "- Audio ➔ ebook ➔ audio must return the **same sentence** (drift is distance to sentence start).",
-            "- COARSE errors are chapter-level vs FINE ground truth (informational; not a pass/fail gate).",
+            "- COARSE errors are chapter-level vs FINE ground truth (informational; not a pass/fail criterion).",
             "",
         ]
     )

@@ -34,7 +34,7 @@ python3 benchmarks/run_benchmarks.py --spot-check 100 --books dr_jekyll
 1. **COARSE-first preservation** — Never block sync API availability on FINE alignment. COARSE must remain queryable while background jobs run.
 2. **Non-root Docker** — Container processes run as UID/GID 1000 (`bookshift`).
 3. **Zero unneeded dependencies** — Core runtime is stdlib-only. Add pip dependencies only with strong justification and optional extras.
-4. **No algorithm changes without benchmarks** — Sync resolver, CAS promotion, and locator index behavior require benchmark or gate regression evidence.
+4. **No algorithm changes without benchmarks** — Sync resolver, CAS promotion, and locator index behavior require benchmark or focused regression evidence.
 5. **SQLite WAL** — All DB connections use `journal_mode=WAL`, `busy_timeout=5000`, `synchronous=NORMAL`.
 
 ## Project layout
