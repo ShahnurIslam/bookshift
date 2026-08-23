@@ -81,7 +81,7 @@ def render_results_table(results: Iterable[BenchmarkTimings]) -> str:
     lines.append("## Acceptance Criteria")
     lines.append("")
     lines.append("- COARSE readiness must be **< 2.0s** from ingest start for every title.")
-    lines.append("- Atomic promotion must complete without session disruption (0 failed requests, latency < 5ms p99 during switch).")
+    lines.append("- Atomic promotion must complete without session disruption (0 failed requests, p95 latency < 5ms during switch).")
     lines.append("- Mean COARSE error is measured against FINE ground truth when available (N=50 samples).")
     lines.append("")
     return "\n".join(lines)

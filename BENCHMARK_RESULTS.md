@@ -99,11 +99,6 @@ targets. Use Tier 1 below for the supported public-fixture check.
 - Mean COARSE error is measured against FINE ground truth when available (N=50 samples).
 - Spot-check FINE exact-match rate must be **100%** vs the compiled index; ebook ➔ audio ➔ ebook must retain the same XPointer.
 
-The generated report template in this snapshot still labels the promotion
-threshold “p99”; `bookshift/benchmarks/disruption.py` actually calculates and
-gates on p95. The criterion above follows the implementation and recorded
-result.
-
 ## CI Tier 1 (public export)
 
 The GitHub Actions pipeline runs the public-domain fixture only (COARSE path, no live Whisper):

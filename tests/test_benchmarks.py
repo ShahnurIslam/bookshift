@@ -15,6 +15,7 @@ from bookshift.benchmarks.accuracy import evaluate_coarse_accuracy
 from bookshift.benchmarks.disruption import run_disruption_during_promotion
 from bookshift.benchmarks.harness import BenchmarkRunner, BenchmarkTimings
 from bookshift.benchmarks.fixtures import BookFixture
+from bookshift.benchmarks.report import render_results_table
 from bookshift.domain.locator_index import CoarseChapterIndex, FineLocatorIndex
 from bookshift.domain.sync_cache import BookBundle
 from bookshift.server.sync_server import SyncAPIHandler
@@ -101,6 +102,12 @@ def test_benchmark_timings_pass_gate(sample_coarse_map):
         coarse_ready_within_2s=True,
     )
     assert t.passed()
+
+
+def test_benchmark_report_names_p95_disruption_threshold():
+    report = render_results_table([])
+    assert "p95 latency < 5ms" in report
+    assert "p99" not in report
 
 
 def test_disruption_zero_failures_during_mock_promotion(sample_coarse_map, sample_fine_rows):
@@ -227,4 +234,3 @@ def test_probe_whisper_health_endpoint():
     finally:
         httpd.shutdown()
         httpd.server_close()
-
