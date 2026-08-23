@@ -56,6 +56,21 @@ class AudiobookshelfAdapter:
                 return prog
         return None
 
+    def update_progress(
+        self,
+        library_item_id: str,
+        progress: dict[str, Any],
+        token: str | None = None,
+    ) -> tuple[int, Any]:
+        """Persist progress through Audiobookshelf's public progress endpoint."""
+        tok = token or self.resolve_token()
+        return http_json(
+            "PATCH",
+            f"{self.settings.abs_url.rstrip('/')}/api/me/progress/{library_item_id}",
+            headers={"Authorization": f"Bearer {tok}"},
+            body=progress,
+        )
+
     def get_chapters(
         self, item_id: str, token: str | None = None
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:

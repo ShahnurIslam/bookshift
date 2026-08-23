@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 
@@ -106,14 +105,7 @@ def _cmd_worker(args: argparse.Namespace) -> int:
 
 
 def _cmd_sync(args: argparse.Namespace) -> int:
-    try:
-        from analysis.sync_abs_to_orbit import main as sync_main
-    except ImportError:
-        print(
-            "ERROR: sync bridge requires analysis/sync_abs_to_orbit.py (private repo tooling)",
-            file=sys.stderr,
-        )
-        return 2
+    from bookshift.reconciliation import main as sync_main
 
     argv: list[str] = []
     if args.execute:

@@ -1,0 +1,11 @@
+[Unit]
+Description=BookShift host-side bidirectional progress reconciliation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Optional host-side environment file. Configure service URLs, credentials,
+# and BOOKSHIFT_DB_PATH here; the reconciliation loop is not run by Docker.
+EnvironmentFile=-%h/.config/bookshift/reconcile.env
+ExecStart=/usr/bin/env bookshift sync --once --execute
