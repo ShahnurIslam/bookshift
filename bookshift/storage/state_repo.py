@@ -151,6 +151,11 @@ class SQLiteStateRepository:
             conn, "logical_books", "last_abs_last_update", "INTEGER DEFAULT 0"
         )
 
+    def _migrate_to_v11(self, conn: sqlite3.Connection) -> None:
+        self._ensure_column(
+            conn, "logical_books", "last_orbit_updated_at", "INTEGER DEFAULT 0"
+        )
+
     def _run_migrations(self, conn: sqlite3.Connection) -> None:
         version = self._schema_version(conn)
         if version < 7:
@@ -161,8 +166,10 @@ class SQLiteStateRepository:
             self._migrate_to_v9(conn)
         if version < 10:
             self._migrate_to_v10(conn)
+        if version < 11:
+            self._migrate_to_v11(conn)
         conn.execute(
-            "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', '10')"
+            "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', '11')"
         )
 
     def migrate_schema(self) -> None:
@@ -246,7 +253,12 @@ class SQLiteStateRepository:
             conn.close()
 
     def update_orbit_observation(
-        self, logical_book_id: int, *, signature: str, sync_mode: str
+        self,
+        logical_book_id: int,
+        *,
+        signature: str,
+        sync_mode: str,
+        updated_at: int = 0,
     ) -> None:
         conn = self.connect()
         try:
@@ -255,10 +267,11 @@ class SQLiteStateRepository:
                 UPDATE logical_books
                 SET last_orbit_progress_signature = ?,
                     last_orbit_sync_mode = ?,
+                    last_orbit_updated_at = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                (signature, sync_mode, logical_book_id),
+                (signature, sync_mode, int(updated_at), logical_book_id),
             )
             conn.commit()
         finally:
@@ -300,6 +313,7 @@ class SQLiteStateRepository:
                 "last_sync_progress",
                 "last_orbit_progress_signature",
                 "last_orbit_sync_mode",
+                "last_orbit_updated_at",
                 "last_abs_progress_signature",
                 "last_abs_last_update",
             ):
@@ -355,6 +369,11 @@ class SQLiteStateRepository:
                 if "last_orbit_sync_mode" in cols
                 else "'' AS last_orbit_sync_mode"
             )
+            last_orbit_update = (
+                "l.last_orbit_updated_at"
+                if "last_orbit_updated_at" in cols
+                else "0 AS last_orbit_updated_at"
+            )
             last_abs_sig = (
                 "l.last_abs_progress_signature"
                 if "last_abs_progress_signature" in cols
@@ -380,6 +399,7 @@ class SQLiteStateRepository:
                     {last_prog},
                     {last_orbit_sig},
                     {last_orbit_mode},
+                    {last_orbit_update},
                     {last_abs_sig},
                     {last_abs_update},
                     e.bookorbit_book_id,

@@ -76,7 +76,9 @@ def test_cas_promotion_success(tmp_path: Path):
 def test_promotion_preserves_observation_for_reinterpretation_guard(tmp_path: Path):
     db = tmp_path / "cas-observation.db"
     repo = _seed_book(db, generation_id="gen-1", epub_fp="epub-a", audio_fp="audio-a")
-    repo.update_orbit_observation(1, signature="unchanged", sync_mode="COARSE")
+    repo.update_orbit_observation(
+        1, signature="unchanged", sync_mode="COARSE", updated_at=5678
+    )
     repo.update_abs_observation(1, signature="unchanged-abs", last_update=1234)
     assert repo.promote_fine_alignment_cas(
         1, "gen-1", "epub-a", "audio-a", "/maps/fine.json", "/maps/table.json", 100
@@ -86,11 +88,12 @@ def test_promotion_preserves_observation_for_reinterpretation_guard(tmp_path: Pa
     assert book["active_sync_mode"] == "FINE"
     assert book["last_orbit_progress_signature"] == "unchanged"
     assert book["last_orbit_sync_mode"] == "COARSE"
+    assert book["last_orbit_updated_at"] == 5678
     assert book["last_abs_progress_signature"] == "unchanged-abs"
     assert book["last_abs_last_update"] == 1234
 
 
-def test_v10_migration_is_additive_and_bootstraps_empty_observations(tmp_path: Path):
+def test_v11_migration_is_additive_and_bootstraps_empty_observations(tmp_path: Path):
     db = tmp_path / "migration.db"
     repo = _seed_book(db, generation_id="gen-1", epub_fp="epub-a", audio_fp="audio-a")
     book = repo.get_book(1)
@@ -101,7 +104,44 @@ def test_v10_migration_is_additive_and_bootstraps_empty_observations(tmp_path: P
     assert book["last_orbit_sync_mode"] == ""
     assert book["last_abs_progress_signature"] == ""
     assert book["last_abs_last_update"] == 0
-    assert repo.get_schema_version() == 10
+    assert book["last_orbit_updated_at"] == 0
+    assert repo.get_schema_version() == 11
+
+
+def test_v10_to_v11_migration_preserves_existing_observations(tmp_path: Path):
+    db = tmp_path / "v10-to-v11.db"
+    conn = sqlite3.connect(str(db))
+    conn.executescript(
+        """
+        CREATE TABLE logical_books (
+            id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL,
+            last_orbit_progress_signature TEXT DEFAULT '',
+            last_orbit_sync_mode TEXT DEFAULT '',
+            last_abs_progress_signature TEXT DEFAULT '',
+            last_abs_last_update INTEGER DEFAULT 0
+        );
+        CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO schema_meta(key, value) VALUES ('schema_version', '10');
+        INSERT INTO logical_books VALUES (
+            1, 'Existing Book', 'orbit-signature', 'FINE', 'abs-signature', 1234
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    repo = SQLiteStateRepository(db)
+    repo.migrate_schema()
+    book = repo.get_book(1)
+
+    assert book is not None
+    assert book["title"] == "Existing Book"
+    assert book["last_orbit_progress_signature"] == "orbit-signature"
+    assert book["last_abs_progress_signature"] == "abs-signature"
+    assert book["last_abs_last_update"] == 1234
+    assert book["last_orbit_updated_at"] == 0
+    assert repo.get_schema_version() == 11
 
 
 def test_cas_stale_generation_rejected(tmp_path: Path):

@@ -6,6 +6,7 @@ import argparse
 import json
 import time
 import urllib.parse
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -71,6 +72,29 @@ def _bookorbit_progress(response: dict[str, Any] | None) -> dict[str, Any]:
     return progress if isinstance(progress, dict) else response
 
 
+def revision_timestamp_ms(value: Any) -> int:
+    """Normalize an API ISO timestamp or epoch value to milliseconds."""
+    if value is None or value == "":
+        return 0
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        return int(round(numeric if numeric >= 10_000_000_000 else numeric * 1000.0))
+    raw = str(value).strip()
+    if not raw:
+        return 0
+    try:
+        numeric = float(raw)
+    except ValueError:
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return int(round(parsed.timestamp() * 1000.0))
+        except ValueError:
+            return 0
+    return int(round(numeric if numeric >= 10_000_000_000 else numeric * 1000.0))
+
+
 def _mapped_percentage(
     position: dict[str, Any], *, audio_seconds: float, duration_seconds: float
 ) -> float:
@@ -134,6 +158,7 @@ class ReconciliationRunner:
         orbit_pct = float(orbit_progress.get("percentage") or 0.0)
         xpointer = str(orbit_progress.get("koreaderProgress") or "")
         orbit_signature = orbit_progress_signature(orbit_pct, xpointer)
+        orbit_revision = revision_timestamp_ms(orbit_progress.get("updatedAt"))
 
         forward = self.resolver.from_audio(logical_id, abs_seconds)
         reverse = select_reverse_position(
@@ -164,6 +189,10 @@ class ReconciliationRunner:
             previous_abs_signature=str(book.get("last_abs_progress_signature") or ""),
             abs_revision=abs_revision,
             previous_abs_revision=int(book.get("last_abs_last_update") or 0),
+            orbit_revision=orbit_revision,
+            previous_orbit_revision=int(book.get("last_orbit_updated_at") or 0),
+            last_sync_timestamp=float(book.get("last_sync_timestamp") or 0.0),
+            last_sync_progress=float(book.get("last_sync_progress") or 0.0),
             abs_mapped_ebook_pct=mapped_pct,
             orbit_pct=orbit_pct,
         )
@@ -181,7 +210,12 @@ class ReconciliationRunner:
         if not decision.should_sync:
             if decision.record_observations:
                 self._record_observations(
-                    logical_id, orbit_signature, mode, abs_signature, abs_revision
+                    logical_id,
+                    orbit_signature,
+                    orbit_revision,
+                    mode,
+                    abs_signature,
+                    abs_revision,
                 )
             return result
 
@@ -206,11 +240,17 @@ class ReconciliationRunner:
                 verified_pct,
                 str(verified.get("koreaderProgress") or payload["koreaderProgress"] or ""),
             )
+            verified_revision = revision_timestamp_ms(verified.get("updatedAt"))
             self.repository.update_sync_metadata(
                 logical_id, source="abs", progress_seconds=abs_seconds
             )
             self._record_observations(
-                logical_id, verified_sig, mode, abs_signature, abs_revision
+                logical_id,
+                verified_sig,
+                verified_revision,
+                mode,
+                abs_signature,
+                abs_revision,
             )
             return {**result, "status": "synced"}
 
@@ -230,6 +270,7 @@ class ReconciliationRunner:
         self._record_observations(
             logical_id,
             orbit_signature,
+            orbit_revision,
             mode,
             abs_progress_signature(
                 verified_seconds, bool(verified_abs.get("isFinished"))
@@ -242,12 +283,16 @@ class ReconciliationRunner:
         self,
         logical_id: int,
         orbit_signature: str,
+        orbit_revision: int,
         mode: str,
         abs_signature: str,
         abs_revision: int,
     ) -> None:
         self.repository.update_orbit_observation(
-            logical_id, signature=orbit_signature, sync_mode=mode
+            logical_id,
+            signature=orbit_signature,
+            sync_mode=mode,
+            updated_at=orbit_revision,
         )
         self.repository.update_abs_observation(
             logical_id, signature=abs_signature, last_update=abs_revision
