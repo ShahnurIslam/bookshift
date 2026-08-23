@@ -1,4 +1,4 @@
-"""SQLite state repository for pipeline_state.db (schema v9)."""
+"""SQLite state repository for pipeline_state.db (schema v10)."""
 
 from __future__ import annotations
 
@@ -143,6 +143,14 @@ class SQLiteStateRepository:
         for col in ("last_orbit_progress_signature", "last_orbit_sync_mode"):
             self._ensure_column(conn, "logical_books", col, "TEXT DEFAULT ''")
 
+    def _migrate_to_v10(self, conn: sqlite3.Connection) -> None:
+        self._ensure_column(
+            conn, "logical_books", "last_abs_progress_signature", "TEXT DEFAULT ''"
+        )
+        self._ensure_column(
+            conn, "logical_books", "last_abs_last_update", "INTEGER DEFAULT 0"
+        )
+
     def _run_migrations(self, conn: sqlite3.Connection) -> None:
         version = self._schema_version(conn)
         if version < 7:
@@ -151,8 +159,10 @@ class SQLiteStateRepository:
             self._migrate_to_v8(conn)
         if version < 9:
             self._migrate_to_v9(conn)
+        if version < 10:
+            self._migrate_to_v10(conn)
         conn.execute(
-            "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', '9')"
+            "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', '10')"
         )
 
     def migrate_schema(self) -> None:
@@ -254,6 +264,25 @@ class SQLiteStateRepository:
         finally:
             conn.close()
 
+    def update_abs_observation(
+        self, logical_book_id: int, *, signature: str, last_update: int
+    ) -> None:
+        conn = self.connect()
+        try:
+            conn.execute(
+                """
+                UPDATE logical_books
+                SET last_abs_progress_signature = ?,
+                    last_abs_last_update = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (signature, int(last_update), logical_book_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def list_logical_books(self) -> list[dict[str, Any]]:
         conn = self.connect()
         try:
@@ -271,6 +300,8 @@ class SQLiteStateRepository:
                 "last_sync_progress",
                 "last_orbit_progress_signature",
                 "last_orbit_sync_mode",
+                "last_abs_progress_signature",
+                "last_abs_last_update",
             ):
                 if optional in cols:
                     select_cols.append(optional)
@@ -324,6 +355,16 @@ class SQLiteStateRepository:
                 if "last_orbit_sync_mode" in cols
                 else "'' AS last_orbit_sync_mode"
             )
+            last_abs_sig = (
+                "l.last_abs_progress_signature"
+                if "last_abs_progress_signature" in cols
+                else "'' AS last_abs_progress_signature"
+            )
+            last_abs_update = (
+                "l.last_abs_last_update"
+                if "last_abs_last_update" in cols
+                else "0 AS last_abs_last_update"
+            )
             rows = conn.execute(
                 f"""
                 SELECT
@@ -339,6 +380,8 @@ class SQLiteStateRepository:
                     {last_prog},
                     {last_orbit_sig},
                     {last_orbit_mode},
+                    {last_abs_sig},
+                    {last_abs_update},
                     e.bookorbit_book_id,
                     e.bookorbit_file_id,
                     a.abs_library_item_id

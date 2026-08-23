@@ -77,6 +77,7 @@ def test_promotion_preserves_observation_for_reinterpretation_guard(tmp_path: Pa
     db = tmp_path / "cas-observation.db"
     repo = _seed_book(db, generation_id="gen-1", epub_fp="epub-a", audio_fp="audio-a")
     repo.update_orbit_observation(1, signature="unchanged", sync_mode="COARSE")
+    repo.update_abs_observation(1, signature="unchanged-abs", last_update=1234)
     assert repo.promote_fine_alignment_cas(
         1, "gen-1", "epub-a", "audio-a", "/maps/fine.json", "/maps/table.json", 100
     )
@@ -85,9 +86,11 @@ def test_promotion_preserves_observation_for_reinterpretation_guard(tmp_path: Pa
     assert book["active_sync_mode"] == "FINE"
     assert book["last_orbit_progress_signature"] == "unchanged"
     assert book["last_orbit_sync_mode"] == "COARSE"
+    assert book["last_abs_progress_signature"] == "unchanged-abs"
+    assert book["last_abs_last_update"] == 1234
 
 
-def test_v9_migration_is_additive_and_bootstraps_empty_observation(tmp_path: Path):
+def test_v10_migration_is_additive_and_bootstraps_empty_observations(tmp_path: Path):
     db = tmp_path / "migration.db"
     repo = _seed_book(db, generation_id="gen-1", epub_fp="epub-a", audio_fp="audio-a")
     book = repo.get_book(1)
@@ -96,7 +99,9 @@ def test_v9_migration_is_additive_and_bootstraps_empty_observation(tmp_path: Pat
     assert book["active_sync_mode"] == "COARSE"
     assert book["last_orbit_progress_signature"] == ""
     assert book["last_orbit_sync_mode"] == ""
-    assert repo.get_schema_version() == 9
+    assert book["last_abs_progress_signature"] == ""
+    assert book["last_abs_last_update"] == 0
+    assert repo.get_schema_version() == 10
 
 
 def test_cas_stale_generation_rejected(tmp_path: Path):

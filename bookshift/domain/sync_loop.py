@@ -15,6 +15,7 @@ class SyncDecision:
 
     direction: str
     reason: str
+    record_observations: bool = True
 
     @property
     def should_sync(self) -> bool:
@@ -66,6 +67,19 @@ def orbit_progress_signature(percentage: float, xpointer: str | None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def abs_progress_signature(current_time_s: float, is_finished: bool) -> str:
+    """Stable identity for reader-visible Audiobookshelf progress."""
+    payload = json.dumps(
+        {
+            "currentTime": round(float(current_time_s), 3),
+            "isFinished": bool(is_finished),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def evaluate_reconciliation_plan(
     *,
     abs_audio_s: float,
@@ -77,6 +91,10 @@ def evaluate_reconciliation_plan(
     active_sync_mode: str,
     previous_sync_mode: str,
     last_sync_source: str,
+    abs_signature: str = "",
+    previous_abs_signature: str = "",
+    abs_revision: int = 0,
+    previous_abs_revision: int = 0,
     abs_mapped_ebook_pct: float | None = None,
     orbit_pct: float | None = None,
 ) -> SyncDecision:
@@ -92,6 +110,49 @@ def evaluate_reconciliation_plan(
     has_previous = bool(previous_orbit_signature)
     orbit_changed = has_previous and orbit_signature != previous_orbit_signature
     mode_changed = bool(previous_sync_mode) and active_sync_mode != previous_sync_mode
+    tracks_abs = bool(abs_signature)
+    has_previous_abs = bool(previous_abs_signature) and previous_abs_revision > 0
+    abs_signature_changed = has_previous_abs and abs_signature != previous_abs_signature
+    abs_changed = abs_signature_changed and abs_revision > previous_abs_revision
+    abs_stale = abs_signature_changed and abs_revision <= previous_abs_revision
+
+    if tracks_abs:
+        if not has_previous or not has_previous_abs:
+            return SyncDecision("skip", "progress observation baseline established")
+        if orbit_changed and abs_changed:
+            return SyncDecision(
+                "skip",
+                "conflicting activity: ABS and BookOrbit both changed since last poll",
+                record_observations=False,
+            )
+        if abs_stale and not orbit_changed:
+            return SyncDecision(
+                "skip", "stale ABS observation ignored", record_observations=False
+            )
+        if abs_changed and not orbit_changed and baseline.direction != "skip":
+            movement = "backward" if abs_audio_s < float(orbit_audio_s or 0.0) else "forward"
+            return SyncDecision(
+                "abs_to_orbit",
+                f"ABS activity moved {movement} to {float(abs_audio_s):.1f}s",
+            )
+        if orbit_changed and not abs_changed and orbit_audio_s is not None and baseline.direction != "skip":
+            movement = "backward" if orbit_audio_s < abs_audio_s else "forward"
+            return SyncDecision(
+                "orbit_to_abs",
+                f"BookOrbit activity moved {movement} to {float(orbit_audio_s):.1f}s",
+            )
+        if mode_changed and not orbit_changed and not abs_changed:
+            return SyncDecision(
+                "skip",
+                f"COARSE/FINE reinterpretation without user activity "
+                f"({previous_sync_mode}→{active_sync_mode})",
+            )
+        if not orbit_changed and not abs_changed:
+            if last_sync_source == "abs":
+                return SyncDecision("skip", "unchanged BookShift write echo from BookOrbit")
+            if last_sync_source == "bookorbit":
+                return SyncDecision("skip", "unchanged BookShift write echo from ABS")
+            return SyncDecision("skip", "neither progress observation changed")
 
     if not has_previous and baseline.direction == "orbit_to_abs":
         return SyncDecision("skip", "BookOrbit observation baseline established")
