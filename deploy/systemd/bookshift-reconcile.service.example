@@ -8,4 +8,7 @@ Type=oneshot
 # Optional host-side environment file. Configure service URLs, credentials,
 # and BOOKSHIFT_DB_PATH here; the reconciliation loop is not run by Docker.
 EnvironmentFile=-%h/.config/bookshift/reconcile.env
-ExecStart=/usr/bin/env bookshift sync --once --execute
+# This example assumes the checkout and virtual environment are under
+# %h/bookshift. Edit both paths if you install BookShift elsewhere.
+WorkingDirectory=%h/bookshift
+ExecStart=%h/bookshift/.venv/bin/bookshift sync --once --execute

@@ -1,238 +1,233 @@
-# ⚡ BookShift
+# BookShift
 
-> **Switch seamlessly between reading and listening without losing your place. Instantly.**
+BookShift keeps an audiobook position in Audiobookshelf and an EPUB position in
+BookOrbit/KOReader synchronized in both directions. EPUB is the canonical ebook
+format; Audiobookshelf remains the audiobook player.
 
-[![CI](https://github.com/ShahnurIslam/storyteller-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/ShahnurIslam/storyteller-sync/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](Dockerfile)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](pyproject.toml)
 
----
+BookShift is a beta. The packaged runtime, mapping API, alignment worker,
+reconciliation runner, tests, and public benchmark fixture are present. A clean
+checkout can start and validate those components, but automatic library
+discovery/pairing is not yet exposed as a public CLI workflow; active book rows
+and their mapping artifacts must already exist in `pipeline_state.db` before
+real titles can reconcile.
 
-### The Problem
+## How it works
 
-You’re reading an EPUB on your e-reader on the train. You step off, put on your headphones, and want to pick up the audiobook exactly where you left off.
-
-Existing solutions either:
-
-1. **Force you to wait hours** for a heavy Whisper transcription job before you can sync a single page.
-2. **Break entirely** if chapter structures don't match 1:1.
-3. **Lock you into proprietary cloud ecosystems.**
-
-### The Fix: Progressive Synchronization
-
-BookShift flips the script with **Progressive Sync**:
-
-1. **COARSE in under a second.** Pair chapters, load the locator index, and expose a usable sync API immediately — even when EPUB and audiobook TOCs are not 1:1.
-2. **FINE in the background.** Remote Whisper alignment upgrades that map to sentence-exact CREngine XPointers while you keep reading and listening.
-3. **Atomic promotion.** COARSE → FINE switches with compare-and-swap. No waiting for the full job, no proprietary cloud.
-
-```
-INGEST → COARSE READY (<2s) → BACKGROUND ALIGNMENT → FINE PROMOTION (atomic CAS)
-         ▲ usable sync API          ▲ Whisper / SMIL jobs      ▲ keep the session
+```text
+Audiobookshelf currentTime
+          │
+          ▼
+ host-side `bookshift sync` runner ─── activity provenance / conflict planning
+          │                                      │
+          ▼                                      ▼
+ BookShift mapping API                    SQLite observation state
+  timestamp ↔ EPUB locator
+          │
+          ▼
+BookOrbit file progress ───────────────► KOReader XPointer/CFI landing
 ```
 
-| Mode | Availability | Precision | Use case |
-|---|---|---|---|
-| **COARSE** | Seconds after ingest | Chapter-level | Immediate KOReader ↔ Audiobookshelf progress |
-| **FINE** | After background alignment | Sentence-exact XPointers | Exact snippets, sub-millisecond lookups |
+The Docker Compose `bookshift-core` service runs the HTTP mapping API. The
+optional `bookshift-worker` service performs alignment work. Bidirectional
+progress reconciliation is a separate runner; it is not silently running in
+the API container. Run it manually or with the supplied user-level systemd
+timer.
 
----
+### Progressive mapping
 
-## Benchmarks
+BookShift exposes usable mapping before expensive alignment is complete:
 
-Public-domain titles only. Full methodology in [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md).
+| Mode | Availability | Mapping behavior |
+|---|---|---|
+| **COARSE** | After chapter pairing | Chapter-level, approximate timestamp/XPointer mapping |
+| **FINE** | After suitable alignment and locator compilation | Precise EPUB CFI/CREngine XPointer-style landing where a locator exists |
 
-### Live FINE (remote Whisper, 2026-08-14)
+COARSE remains available while FINE is generated. Promotion uses
+compare-and-swap state updates so readers never observe a half-promoted index.
+Promotion does not itself imply that a latency-sensitive session benchmark has
+passed; measured disruption results are reported separately.
 
-End-to-end run of *The Strange Case of Dr Jekyll and Mr Hyde* (Gutenberg EPUB + LibriVox audio) against a remote Apple Silicon whisper.cpp server. Transcription was **not** skipped.
+For ABS → BookOrbit writes, the precise locator is authoritative. If a resolver
+also supplies an EPUB percentage, BookShift uses it. Otherwise the numeric
+BookOrbit progress field falls back to audiobook percentage while the precise
+CFI/XPointer remains the landing authority. If no FINE locator is available,
+the resolver can return a COARSE chapter locator.
+
+### Reconciliation safety
+
+BookShift records signatures for both ABS and BookOrbit observations plus the
+ABS update revision. This lets it distinguish user activity from different
+representations of the same position.
+
+- Fresh ABS activity can update BookOrbit, including an intentional backward
+  seek.
+- Fresh BookOrbit/KOReader activity can update ABS in either direction.
+- A BookShift-authored write is recognized on the next cycle and is not echoed
+  back.
+- Unchanged state is a no-op.
+- A COARSE → FINE reinterpretation without user activity is not treated as a
+  new position.
+- Stale ABS revisions are ignored. If both sources changed between polls, the
+  runner reports a conflict instead of guessing.
+- The first cycle after installation or schema migration establishes a safe
+  baseline.
+
+## Measured results
+
+Detailed methodology, caveats, and historical tables are in
+[BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md). The figures below are measurements,
+not production guarantees.
+
+### Reproducible clean-checkout Tier 1 run (2026-08-23)
 
 ```bash
-BOOKSHIFT_M1_WHISPER_URL="http://whisper-host:8000" \
-  python3 benchmarks/run_benchmarks.py --books dr_jekyll --no-skip-transcription
+python3 benchmarks/run_benchmarks.py \
+  --books dr_jekyll --skip-disruption --output /tmp/bookshift-tier1.md
 ```
 
-| Title | Audio | COARSE Ready | First Usable Sync | FINE Ready | Atomic Promotion | Mean COARSE Error |
-|---|---|---|---|---|---|---|
-| The Strange Case of Dr Jekyll and Mr Hyde | 02:49:52 | **0.02s** | **0.02s** | **28m 35s** | **32ms** | ± 7.7s |
+Using the committed public-domain Dr Jekyll EPUB, the catalog's representative
+`02:49:52` duration, and synthetic ABS chapter timing proportional to EPUB
+chapter size:
 
-Whisper produced 2,572 segments; 925 compiled to FINE locators. Real-time factor ~6× (10193 s of audio in 28m 35s wall clock). CAS promotion completed in 32 ms.
+| COARSE ready | First usable HTTP lookup | FINE generation | Disruption test |
+|---:|---:|---|---|
+| **0.02 s** | **0.05 s** | Not run | Skipped |
 
-### 🎯 100-Point Bidirectional Spot-Check Accuracy (*Dr Jekyll and Mr Hyde*)
+This measures EPUB parsing, synthetic chapter-map construction, index loading,
+API startup, and the first successful lookup. It does **not** read full audio,
+run Whisper, measure real chapter mismatch, or represent full-book production
+ingestion time.
 
-We sampled 100 randomized positions (seed 42) in both sync directions against that live FINE index:
+### Historical live FINE run (2026-08-14)
+
+A recorded end-to-end run used the same public-domain work with a Gutenberg
+EPUB, `02:49:52` of LibriVox audio, and a remote Apple Silicon whisper.cpp
+server:
+
+| COARSE ready | First usable sync | FINE ready | CAS promotion | COARSE-vs-FINE mean error | Session disruption threshold |
+|---:|---:|---:|---:|---:|---|
+| 0.02 s | 0.02 s | 28 min 35 s | 32 ms | 7.7 s | **Triggered** |
+
+The run produced 2,572 Whisper segments and 925 FINE locators. The CAS update
+completed, but the concurrent request flood crossed the benchmark's 5 ms p95
+latency threshold, so the measured session-disruption result is **Yes**. The
+raw generated audio/alignment artifacts are intentionally not distributed;
+reproduction requires independently obtained public-domain audio and a
+compatible Whisper endpoint.
+
+The associated seeded 100-point lookup report measured 100% exact FINE
+sentence/XPointer identity against that compiled index. Audio → ebook → audio
+landed at sentence starts: median drift 5.3 s and mean drift 8.2 s across all
+samples, including alignment gaps. FINE lookup p95 was 0.003 ms. The historical
+report recorded COARSE median/mean/p90 errors rather than p95 error; no p95 error
+is inferred or published.
+
+## Quick start
+
+Prerequisites:
+
+- Docker Engine with the Compose plugin
+- Python 3.11+ for host-side runner/systemd use
+- Audiobookshelf and BookOrbit endpoints reachable from the host runner
+- An initialized BookShift state database
+
+From a clean checkout:
 
 ```bash
-python3 benchmarks/run_benchmarks.py --spot-check 100 --books dr_jekyll
-```
-
-| Sync Direction | Mode | Precision / Error | Round-Trip Retention | Resolution Latency (p95) |
-|---|---|---|---|---|
-| **Audio ➔ Ebook** | **FINE** | **100% exact sentence match** | 100% same sentence (mean 8.2s to sentence start*) | **0.003 ms (3 µs)** |
-| **Audio ➔ Ebook** | **COARSE** | Chapter-level boundary | Retains chapter context | **0.004 ms (4 µs)** |
-| **Ebook ➔ Audio** | **FINE** | **100% exact sentence start** | **100% exact XPointer** | **0.003 ms (3 µs)** |
-| **Ebook ➔ Audio** | **COARSE** | Chapter-level timestamp | Retains chapter context | **0.004 ms (4 µs)** |
-
-\*Audio ➔ ebook ➔ audio always resumes at the **start of the resolved sentence**, never mid-syllable. That quantization averages **1.4 s** when the query already sits inside a compiled sentence (mean spoken window 2.8 s). The **8.2 s** all-sample mean (median 5.3 s, max 54 s) is pulled up by alignment gaps: 925 of 2,572 Whisper segments compiled to locators, so 70 of 100 random timestamps land between sentences and snap back to the previous locator. COARSE is chapter-level by design (see [BENCHMARK_RESULTS.md](BENCHMARK_RESULTS.md)); it is not sentence-exact.
-
-### COARSE / compile-only (no live Whisper)
-
-CI and scale illustrations. FINE Ready on the last row is in-process locator compile from an existing alignment map (`--skip-transcription`), not ASR.
-
-| Title | Audio Duration | Ingest → COARSE Ready | First Usable Sync | FINE Ready | Atomic Promotion | Mean COARSE Error | Session Disrupted |
-|---|---|---|---|---|---|---|---|
-| The Strange Case of Dr Jekyll and Mr Hyde | 02:35:10 | 0.09s | 0.12s | — | — | ± 0.0s | No |
-| The Picture of Dorian Gray (public-domain scale) | 09:04:00 | 0.10s | 0.10s | — | — | ± 0.0s | No |
-| Pride and Prejudice (public-domain scale) | 11:35:00 | 0.21s | 0.21s | 53.06s | 24ms | ± 128.1s | No |
-
-COARSE readiness is under 2.0 seconds for every tested title.
-
----
-
-## Quickstart (Docker Compose)
-
-### 1. Clone and configure
-
-```bash
-git clone https://github.com/ShahnurIslam/storyteller-sync.git
-cd storyteller-sync
 cp .env.example .env
-# Edit .env — set ABS, BookOrbit, and Whisper URLs for your network
+# Replace example.invalid URLs and set credentials.
+mkdir -p data data/benchmarks/artifacts library
+
+docker compose build bookshift-core
+docker compose run --rm bookshift-core \
+  python3 -m bookshift init-db --db /data/pipeline_state.db
+docker compose up -d bookshift-core
+
+curl -fsS http://127.0.0.1:18001/api/v1/sync/health \
+  | python3 -m json.tool
 ```
 
-### 2. Prepare data directories
+This starts an empty but working API on a new checkout. It will report no active
+books until `pipeline_state.db` contains paired books and COARSE/FINE mapping
+paths.
 
-```bash
-mkdir -p data library
-python3 -m bookshift init-db
-```
-
-Mount your **read-only** media library at `./library` and writable state at `./data`.
-
-### 3. Start the sync API
-
-```bash
-docker compose -f docker-compose.yml up -d bookshift-core
-curl -s http://127.0.0.1:18001/api/v1/sync/health | python3 -m json.tool
-```
-
-### 4. Optional: alignment worker
-
-```bash
-docker compose -f docker-compose.yml --profile worker up -d
-```
-
----
+For complete Docker, host-runner, user-systemd, logging, dry-run, live-operation,
+and rollback instructions, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## CLI
 
 ```bash
-python3 -m bookshift server          # HTTP sync API (:18001)
-python3 -m bookshift worker          # Background alignment worker
-python3 -m bookshift init-db         # Initialize / migrate SQLite schema
-python3 -m bookshift benchmark       # Progressive-sync benchmarks
-python3 -m bookshift benchmark --spot-check 100 --books dr_jekyll
+bookshift server                         # HTTP mapping API
+bookshift worker --once --dry-run        # Inspect one alignment-worker cycle
+bookshift sync --once                    # Reconciliation dry-run
+bookshift sync --once --execute          # One live reconciliation cycle
+bookshift init-db                        # Initialize/migrate state
+bookshift benchmark --books dr_jekyll    # Public Tier 1 benchmark
 ```
 
-Live FINE (requires audio under `data/benchmarks/dr_jekyll/audio/` and a reachable Whisper server):
+The position API supports both directions:
 
-```bash
-python3 -m bookshift benchmark --books dr_jekyll --no-skip-transcription
-```
-
-Install as a package:
-
-```bash
-pip install -e ".[dev]"
-bookshift server --mark-ready
-```
-
----
-
-## KOReader setup
-
-1. Ensure the BookShift sync API is reachable from your e-reader (LAN IP or Tailscale).
-2. Configure KOReader's **Progress sync** plugin (or custom hook) to call:
-
-   ```
-   GET http://<bookshift-host>:18001/api/v1/sync/position?book_id=1&xpointer=<XPTR>
-   ```
-
-3. On page turn, KOReader sends the CREngine XPointer; BookShift returns the matching audiobook timestamp for Audiobookshelf.
-
-Reverse lookup (audiobook → ebook):
-
-```
+```text
 GET /api/v1/sync/position?book_id=1&timestamp=276.0
+GET /api/v1/sync/position?book_id=1&xpointer=<URL-encoded-XPointer>
 ```
 
-See [docs/openapi.yaml](docs/openapi.yaml) for the full API schema.
+See [docs/openapi.yaml](docs/openapi.yaml) for the API schema.
 
----
+## Configuration
 
-## Audiobookshelf setup
+[.env.example](.env.example) documents the available container, runner, and
+optional alignment settings. Important variables are:
 
-1. Run BookShift on the same host or a reachable container (`host.docker.internal` in `.env`).
-2. Set `BOOKSHIFT_ABS_URL` and `BOOKSHIFT_ABS_TOKEN` in `.env`.
-3. Poll ABS playback, resolve timestamps via the sync API, then push reading progress to your ebook server.
+| Variable | Required for | Purpose |
+|---|---|---|
+| `BOOKSHIFT_DB_PATH` | API, worker, runner | Shared SQLite state database |
+| `BOOKSHIFT_SYNC_HOST`, `BOOKSHIFT_SYNC_PORT` | API and runner resolver | API bind/address; `18001` is the BookShift default |
+| `BOOKSHIFT_ABS_URL`, `BOOKSHIFT_ABS_TOKEN` | Runner | Audiobookshelf API access |
+| `BOOKSHIFT_BOOKORBIT_URL` | Runner | BookOrbit API base URL |
+| `BOOKSHIFT_BOOKORBIT_USERNAME`, `BOOKSHIFT_BOOKORBIT_PASSWORD` | Runner | BookOrbit login |
+| `BOOKSHIFT_BOOKS_DIR`, `BOOKSHIFT_AUDIOBOOKS_DIR` | Alignment/runtime | Mounted media locations |
+| `BOOKSHIFT_ANALYSIS_DIR` | Mapping API | Locator/map directory |
+| `BOOKSHIFT_ARTIFACTS_DIR` | Compose only | Host directory mounted for mapping artifacts |
+| `BOOKSHIFT_M1_WHISPER_URL` | Optional FINE alignment | External Whisper-compatible worker |
+| `BOOKSHIFT_STORYTELLER_URL` | Optional alignment workflow | Storyteller service URL |
 
-BookShift discovers active titles from `pipeline_state.db` where `active_sync_mode` is `COARSE` or `FINE`.
+Use host-reachable URLs in the systemd environment file. Do not copy Docker-only
+paths such as `/data/pipeline_state.db` into the host runner configuration.
 
----
+## Limitations
 
-## Architecture
-
-```
-┌─────────────┐   chapters/currentTime   ┌──────────────────┐
-│ Audiobookshelf│ ─────────────────────► │  bookshift sync  │
-└─────────────┘                          │  (optional)      │
-                                         └────────┬─────────┘
-┌─────────────┐   XPointer / timestamp            │
-│  KOReader   │ ◄─────────────────────────────────┤
-└─────────────┘                                   │
-                                         ┌────────▼─────────┐
-                                         │ bookshift server │
-                                         │  :18001 COARSE/  │
-                                         │       FINE API   │
-                                         └────────┬─────────┘
-                                                  │
-                                         ┌────────▼─────────┐
-                                         │ SQLite WAL state │
-                                         │ + locator indexes│
-                                         └──────────────────┘
-```
-
-- **Runtime:** Python 3.11+, stdlib only (no Redis, Celery, or ORM)
-- **Container:** non-root user `bookshift` (UID 1000)
-- **State:** SQLite with WAL mode (`BOOKSHIFT_DB_PATH`)
-
-### Progress reconciliation rules
-
-- A valid, non-approximate FINE XPointer is authoritative over COARSE or
-  percentage-derived fallback mappings. COARSE remains available before FINE is
-  ready and when an exact FINE locator cannot be resolved.
-- Optional progress bridges should use `evaluate_reconciliation_plan()` and
-  persist the verified BookOrbit `percentage` + `koreaderProgress` signature via
-  `update_orbit_observation()`. This distinguishes reader movement from
-  COARSE→FINE reinterpretation, unchanged state, and BookShift-authored write
-  echoes.
-- The first observation after installation or schema migration establishes a
-  safe baseline. Genuine later reader movement may proceed in either direction,
-  including an intentional move backwards.
-
----
+- Automatic clean-checkout library discovery/pairing is not yet a public CLI
+  workflow; the runtime needs populated active-book and mapping records.
+- Failed network writes retry on a later timer cycle. There is no persistent
+  retry queue.
+- FINE availability depends on suitable alignment data and successfully
+  compiled EPUB locators. Coverage gaps can fall back to an earlier locator or
+  COARSE chapter mapping.
+- The Compose API container does not run reconciliation. Use the host runner or
+  another explicit scheduler.
+- Exact locator/CFI/XPointer data is authoritative. Numeric BookOrbit percentage
+  can be an audiobook-percentage fallback when EPUB percentage is unavailable.
+- The bundled Tier 1 fixture uses synthetic chapter timing and does not measure
+  Whisper or production ingestion. Historical FINE results require external
+  public-domain audio and are not reproduced in CI.
 
 ## Development
 
 ```bash
-pip install -e ".[dev]"
-python -m pytest tests/ -v
-python3 benchmarks/run_benchmarks.py --books dr_jekyll
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+.venv/bin/python -m pytest tests/ -v
+.venv/bin/python benchmarks/run_benchmarks.py \
+  --books dr_jekyll --skip-disruption --output /tmp/bookshift-tier1.md
+docker build -t bookshift:test .
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
----
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 ## License
 

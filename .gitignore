@@ -1,0 +1,69 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials/
+secrets/
+
+# Python/editor/build output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+.idea/
+.vscode/
+
+# Runtime state and logs
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.log
+logs/
+tmp/
+temp/
+
+# Local libraries, imports, and downloaded media
+library/
+libraries/
+input/
+imports/
+uploads/
+downloads/
+*.m4b
+*.mp3
+*.m4a
+*.aac
+*.flac
+*.ogg
+*.opus
+*.wav
+*.epub
+!data/benchmarks/dr_jekyll/dr_jekyll.epub
+
+# Generated alignment, locator, benchmark, and batch artifacts
+data/benchmarks/artifacts/
+benchmark-results/
+*alignment*.json
+*coarse_chapter_map*.json
+*fine_table*.json
+*locator_table*.json
+*spot_check_results*
+*batch_*results*.json
+
+# Local Docker overrides and exported images
+compose.override.yaml
+docker-compose.override.yml
+*.tar
+*.tar.gz
