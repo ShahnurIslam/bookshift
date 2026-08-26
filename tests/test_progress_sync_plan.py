@@ -98,6 +98,18 @@ def test_stale_abs_observation_is_not_activity():
     assert decision.record_observations is False
 
 
+def test_stale_bookorbit_observation_is_not_activity():
+    decision = _plan(
+        abs_audio_s=200.0,
+        orbit_audio_s=100.0,
+        orbit_signature="different-but-stale",
+        orbit_revision=199_000,
+    )
+    assert decision.direction == "skip"
+    assert "stale BookOrbit" in decision.reason
+    assert decision.record_observations is False
+
+
 def test_both_changed_abs_clearly_newer_wins():
     decision = _plan(
         abs_audio_s=200.0,
@@ -246,6 +258,19 @@ def test_orbit_backward_activity_remains_symmetric():
         orbit_audio_s=100.0,
         orbit_signature="orbit-backward",
         previous_orbit_signature="orbit-before",
+        orbit_revision=201_000,
     )
     assert decision.direction == "orbit_to_abs"
     assert "backward" in decision.reason
+
+
+def test_orbit_forward_activity_remains_symmetric():
+    decision = _plan(
+        abs_audio_s=100.0,
+        orbit_audio_s=200.0,
+        orbit_signature="orbit-forward",
+        previous_orbit_signature="orbit-before",
+        orbit_revision=201_000,
+    )
+    assert decision.direction == "orbit_to_abs"
+    assert "forward" in decision.reason

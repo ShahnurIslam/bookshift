@@ -113,7 +113,12 @@ def evaluate_reconciliation_plan(
         orbit_pct=orbit_pct,
     )
     has_previous = bool(previous_orbit_signature)
-    orbit_changed = has_previous and orbit_signature != previous_orbit_signature
+    orbit_signature_changed = has_previous and orbit_signature != previous_orbit_signature
+    tracks_orbit_revision = previous_orbit_revision > 0
+    orbit_changed = orbit_signature_changed and (
+        not tracks_orbit_revision or orbit_revision > previous_orbit_revision
+    )
+    orbit_stale = orbit_signature_changed and tracks_orbit_revision and not orbit_changed
     mode_changed = bool(previous_sync_mode) and active_sync_mode != previous_sync_mode
     tracks_abs = bool(abs_signature)
     has_previous_abs = bool(previous_abs_signature) and previous_abs_revision > 0
@@ -173,6 +178,10 @@ def evaluate_reconciliation_plan(
                 else f"newer {winner} activity has no actionable mapped delta; observations rebased"
             )
             return SyncDecision("skip", reason, record_observations=True)
+        if orbit_stale and not abs_changed:
+            return SyncDecision(
+                "skip", "stale BookOrbit observation ignored", record_observations=False
+            )
         if abs_stale and not orbit_changed:
             return SyncDecision(
                 "skip", "stale ABS observation ignored", record_observations=False
