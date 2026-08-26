@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -54,11 +55,58 @@ class SyncAPIHandler(BaseHTTPRequestHandler):
     cache: SyncCache = SyncCache()
     db_path: Path | None = None
     settings: Settings | None = None
+    cache_refresh_lock = threading.Lock()
 
     def _repo(self) -> SQLiteStateRepository:
         cfg = self.settings or get_settings()
         path = Path(self.db_path or cfg.db_path)
         return SQLiteStateRepository(path, cfg)
+
+    @staticmethod
+    def _bundle_state(bundle: Any) -> tuple[str, str, str]:
+        return (
+            str(bundle.active_sync_mode or "").upper(),
+            str(bundle.fine_table_path or ""),
+            str(bundle.coarse_map_path or ""),
+        )
+
+    @staticmethod
+    def _row_bundle_state(row: dict[str, Any]) -> tuple[str, str, str]:
+        return (
+            str(row.get("active_sync_mode") or "").upper(),
+            str(row.get("fine_locator_table_path") or ""),
+            str(row.get("coarse_map_path") or ""),
+        )
+
+    def _current_bundle(self, book_id: int):
+        bundle = self.cache.get(book_id)
+        if self.db_path is None:
+            return bundle
+        row = self._repo().get_book(book_id)
+        if row is None or (
+            bundle is not None
+            and self._bundle_state(bundle) == self._row_bundle_state(row)
+        ):
+            return bundle
+        with self.cache_refresh_lock:
+            bundle = self.cache.get(book_id)
+            row = self._repo().get_book(book_id)
+            if row is None or (
+                bundle is not None
+                and self._bundle_state(bundle) == self._row_bundle_state(row)
+            ):
+                return bundle
+            try:
+                refreshed = load_cache_from_rows(
+                    [row], db_path=Path(self.db_path)
+                ).get(book_id)
+            except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+                return bundle
+            mode = str(row.get("active_sync_mode") or "").upper()
+            if refreshed is None or (mode == "FINE" and refreshed.fine is None):
+                return bundle
+            self.cache.books[book_id] = refreshed
+            return refreshed
 
     def log_message(self, fmt: str, *args: Any) -> None:
         sys.stderr.write(f"[sync-api] {self.address_string()} - {fmt % args}\n")
@@ -113,7 +161,7 @@ class SyncAPIHandler(BaseHTTPRequestHandler):
             self._send(400, {"ok": False, "error": "book_id_required"}, started=started)
             return
 
-        bundle = self.cache.get(book_id)
+        bundle = self._current_bundle(book_id)
         if bundle is None:
             self._send(
                 404,

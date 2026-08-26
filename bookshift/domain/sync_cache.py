@@ -135,17 +135,17 @@ def load_cache_from_rows(
         )
         fine_path = row.get("fine_locator_table_path")
         coarse_path = row.get("coarse_map_path")
+        bundle.fine_table_path = str(fine_path) if fine_path else None
+        bundle.coarse_map_path = str(coarse_path) if coarse_path else None
 
         if fine_path and Path(fine_path).is_file():
             doc = json.loads(Path(fine_path).read_text(encoding="utf-8"))
             locs = doc.get("locators") or []
             bundle.fine = FineLocatorIndex(locs, path=fine_path)
-            bundle.fine_table_path = fine_path
 
         if coarse_path and Path(coarse_path).is_file():
             cmap = json.loads(Path(coarse_path).read_text(encoding="utf-8"))
             bundle.coarse = CoarseChapterIndex(cmap, path=coarse_path)
-            bundle.coarse_map_path = coarse_path
 
         cache.books[bundle.book_id] = bundle
     return cache
