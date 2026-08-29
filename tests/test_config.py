@@ -32,10 +32,14 @@ def test_default_settings_use_repo_relative_paths():
 def test_env_override(monkeypatch):
     monkeypatch.setenv("BOOKSHIFT_SYNC_PORT", "19999")
     monkeypatch.setenv("BOOKSHIFT_M1_WHISPER_URL", "http://whisper.test:9000")
+    monkeypatch.setenv("BOOKSHIFT_STORYTELLER_USERNAME", "fixture-user")
+    monkeypatch.setenv("BOOKSHIFT_STORYTELLER_PASSWORD", "fixture-password")
     reset_settings_cache()
     s = Settings.load()
     assert s.sync_port == 19999
     assert s.m1_whisper_url == "http://whisper.test:9000"
+    assert s.storyteller_username == "fixture-user"
+    assert s.storyteller_password == "fixture-password"
 
 
 def test_legacy_abs_token_env(monkeypatch):

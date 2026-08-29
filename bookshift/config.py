@@ -53,6 +53,8 @@ class Settings:
     bookorbit_password: str = ""
     m1_whisper_url: str = "http://localhost:8000"
     storyteller_url: str = "http://localhost:18002"
+    storyteller_username: str = ""
+    storyteller_password: str = ""
     storyteller_db_path: Path = field(default_factory=lambda: REPO_ROOT / "data" / "storyteller.db")
     books_dir: Path = field(default_factory=lambda: REPO_ROOT / "library")
     audiobooks_dir: Path = field(default_factory=lambda: REPO_ROOT / "library")
@@ -136,6 +138,18 @@ class Settings:
                 dot_key="STORYTELLER_URL",
                 default="http://localhost:18002",
             ),
+            storyteller_username=from_sources(
+                "BOOKSHIFT_STORYTELLER_USERNAME",
+                "STORYTELLER_USERNAME",
+                dot_key="BOOKSHIFT_STORYTELLER_USERNAME",
+            )
+            or from_sources(dot_key="STORYTELLER_USERNAME"),
+            storyteller_password=from_sources(
+                "BOOKSHIFT_STORYTELLER_PASSWORD",
+                "STORYTELLER_PASSWORD",
+                dot_key="BOOKSHIFT_STORYTELLER_PASSWORD",
+            )
+            or from_sources(dot_key="STORYTELLER_PASSWORD"),
             storyteller_db_path=_resolve_path(
                 from_sources("BOOKSHIFT_STORYTELLER_DB_PATH"),
                 REPO_ROOT / "data" / "storyteller.db",

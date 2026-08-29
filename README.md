@@ -199,6 +199,7 @@ optional alignment settings. Important variables are:
 | `BOOKSHIFT_ARTIFACTS_DIR` | Compose only | Host directory mounted for mapping artifacts |
 | `BOOKSHIFT_M1_WHISPER_URL` | Optional FINE alignment | External Whisper-compatible worker |
 | `BOOKSHIFT_STORYTELLER_URL` | Optional alignment workflow | Storyteller service URL |
+| `BOOKSHIFT_STORYTELLER_USERNAME`, `BOOKSHIFT_STORYTELLER_PASSWORD` | Optional alignment workflow | Storyteller API login |
 
 Use host-reachable URLs in the systemd environment file. Do not copy Docker-only
 paths such as `/data/pipeline_state.db` into the host runner configuration.
