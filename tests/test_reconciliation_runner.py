@@ -306,3 +306,30 @@ def test_available_coarse_xpointer_mapping_is_retained():
 def test_fallback_is_used_when_xpointer_mapping_is_unavailable():
     fallback = {"audio_seconds": 11.0}
     assert select_reverse_position(None, fallback) is fallback
+
+
+def test_existing_abs_position_initializes_bookorbit_when_abs_observation_is_missing():
+    previous_orbit = {
+        "percentage": 20.0,
+        "koreaderProgress": "/body/DocFragment[5]/body/p[1]/text().0",
+    }
+    current_orbit = {"percentage": 0.0, "koreaderProgress": ""}
+    book = _book(abs_seconds=200.0, abs_revision=10, orbit=previous_orbit)
+    book["last_abs_progress_signature"] = ""
+    book["last_abs_last_update"] = 0
+    repo = FakeRepository(book)
+    abs_adapter = FakeABS(
+        {"currentTime": 200.0, "duration": 1000.0, "lastUpdate": 11, "isFinished": False}
+    )
+    orbit_adapter = FakeBookOrbit(current_orbit)
+    resolver = FakeResolver(
+        forward=_forward(200.0, 20.0),
+        reverse_by_xpointer={},
+    )
+    runner = ReconciliationRunner(repo, abs_adapter, orbit_adapter, resolver, execute=True)
+
+    result = runner.reconcile_book(book)
+
+    assert result["direction"] == "abs_to_orbit"
+    assert result["status"] == "synced"
+    assert orbit_adapter.writes[0]["percentage"] == 20.0

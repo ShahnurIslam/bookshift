@@ -154,6 +154,13 @@ def evaluate_reconciliation_plan(
         return source
 
     if tracks_abs:
+        if (
+            has_previous
+            and not has_previous_abs
+            and orbit_audio_s is None
+            and baseline.direction == "abs_to_orbit"
+        ):
+            return SyncDecision("abs_to_orbit", "existing ABS position initialized BookOrbit")
         if not has_previous or not has_previous_abs:
             return SyncDecision("skip", "progress observation baseline established")
         if orbit_changed and abs_changed:
