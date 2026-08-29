@@ -87,8 +87,14 @@ class AlignmentAdapter:
         return action
 
     def storyteller_token(self) -> str | None:
+        if not self.settings.storyteller_username or not self.settings.storyteller_password:
+            return None
+
         data = urllib.parse.urlencode(
-            {"username": "gate4poc", "password": "Gate4Poc!Align2026"}
+            {
+                "username": self.settings.storyteller_username,
+                "password": self.settings.storyteller_password,
+            }
         ).encode()
         api_base = self.settings.storyteller_url.rstrip("/")
         req = urllib.request.Request(
